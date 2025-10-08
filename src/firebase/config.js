@@ -3,6 +3,7 @@ const DEMO_MODE = !process.env.REACT_APP_FIREBASE_API_KEY;
 
 let auth = null;
 let db = null;
+let functions = null;
 let app = null;
 
 if (!DEMO_MODE) {
@@ -10,6 +11,7 @@ if (!DEMO_MODE) {
   const { initializeApp } = require('firebase/app');
   const { getAuth } = require('firebase/auth');
   const { getFirestore } = require('firebase/firestore');
+  const { getFunctions, connectFunctionsEmulator } = require('firebase/functions');
 
   const firebaseConfig = {
     apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -24,10 +26,16 @@ if (!DEMO_MODE) {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  functions = getFunctions(app);
+
+  // 開発環境でFunctionsエミュレータを使用する場合
+  if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_USE_FUNCTIONS_EMULATOR === 'true') {
+    connectFunctionsEmulator(functions, 'localhost', 5001);
+  }
 } else {
   console.log('🔧 デモモードで動作中 - Firebase設定なしでモックデータを使用');
 }
 
 // Firebase サービスのエクスポート
-export { auth, db };
+export { auth, db, functions };
 export default app;

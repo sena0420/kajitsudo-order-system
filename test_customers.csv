@@ -1,0 +1,4 @@
+customerId,name,email,salesStaffId,minDeliveryDays,isActive
+CUST001,テストスーパー,test1@example.com,STAFF001,2,true
+CUST002,サンプルマート,test2@example.com,STAFF002,3,true
+CUST003,実例ストア,test3@example.com,STAFF001,1,false

@@ -11,11 +11,12 @@ import {
   Box,
   CircularProgress
 } from '@mui/material';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+// Router components will be used in future versions
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './components/LoginPage';
 import OrderPage from './components/OrderPage';
 import OrderHistory from './components/OrderHistory';
+import AdminPage from './components/AdminPage';
 
 const theme = createTheme({
   palette: {
@@ -166,6 +167,20 @@ const AppContent = () => {
           >
             履歴
           </Button>
+          {user.isAdmin && (
+            <Button 
+              color="inherit" 
+              onClick={() => setCurrentPage('admin')}
+              sx={{ 
+                mr: { xs: 0.5, sm: 2 },
+                minWidth: { xs: '60px', sm: 'auto' },
+                fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                backgroundColor: currentPage === 'admin' ? 'rgba(255,255,255,0.1)' : 'transparent'
+              }}
+            >
+              管理
+            </Button>
+          )}
           <Button 
             color="inherit" 
             onClick={logout}
@@ -203,6 +218,7 @@ const AppContent = () => {
       >
         {currentPage === 'order' && <OrderPage user={user} />}
         {currentPage === 'history' && <OrderHistory user={user} />}
+        {currentPage === 'admin' && user.isAdmin && <AdminPage user={user} />}
       </Container>
     </>
   );

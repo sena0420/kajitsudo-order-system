@@ -1,0 +1,4 @@
+customerId,customerName,email,salesStaffId,password,isActive
+1,サンプル顧客1,customer001@example.com,STAFF001,AUTO_GEN,true
+12,テスト商店,customer002@example.com,STAFF001,AUTO_GEN,true
+123,○○商事,customer003@example.com,STAFF002,AUTO_GEN,true

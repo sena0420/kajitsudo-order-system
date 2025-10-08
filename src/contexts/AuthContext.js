@@ -27,6 +27,10 @@ export const AuthProvider = ({ children }) => {
       const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         try {
           if (firebaseUser) {
+            // IDトークンから Custom Claims を取得
+            const idTokenResult = await firebaseUser.getIdTokenResult();
+            const isAdmin = idTokenResult.claims.admin === true;
+            
             // Firestoreから顧客情報を取得
             const customerId = firebaseUser.displayName || 'CUST001';
             setUser({
@@ -34,7 +38,8 @@ export const AuthProvider = ({ children }) => {
               customerId: customerId,
               customerName: '〇〇スーパー',
               email: firebaseUser.email,
-              salesStaffId: 'STAFF001'
+              salesStaffId: 'STAFF001',
+              isAdmin: isAdmin
             });
           } else {
             setUser(null);
@@ -64,12 +69,16 @@ export const AuthProvider = ({ children }) => {
       // 本来はauthService.loginCustomerを使用
       // 現在は仮実装
       if (customerId && password) {
+        // 管理者権限の判定（デモモード）
+        const isAdmin = customerId === 'ADMIN' || customerId === 'admin';
+        
         const userData = {
           uid: 'mock-uid',
           customerId,
-          customerName: customerId === 'CUST001' ? '〇〇スーパー' : customerId + 'ストア',
+          customerName: isAdmin ? '管理者' : (customerId === 'CUST001' ? '〇〇スーパー' : customerId + 'ストア'),
           email: `${customerId}@example.com`,
-          salesStaffId: 'STAFF001'
+          salesStaffId: isAdmin ? null : 'STAFF001',
+          isAdmin: isAdmin
         };
         setUser(userData);
         return userData;

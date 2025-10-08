@@ -1,0 +1,4 @@
+customerId,workCode,name,specification,origin,unitPrice,isActive
+INVALID_CUST,ERR001,エラー商品1,1箱,エラー県,abc,true
+CUST001,,エラー商品2,2kg,エラー県,1500,true
+CUST001,ERR003,エラー商品3,,,2000,invalid

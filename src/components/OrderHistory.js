@@ -18,7 +18,7 @@ import {
   CircularProgress,
   Alert
 } from '@mui/material';
-import { ExpandMore, CheckCircle, Schedule, LocalShipping } from '@mui/icons-material';
+import { ExpandMore, CheckCircle, Schedule, LocalShipping, Receipt } from '@mui/icons-material';
 import { useOrders } from '../hooks/useOrders';
 
 const OrderHistory = ({ user }) => {
@@ -32,6 +32,8 @@ const OrderHistory = ({ user }) => {
         return 'info';
       case 'processing':
         return 'warning';
+      case 'ordered':
+        return 'default';
       default:
         return 'default';
     }
@@ -45,6 +47,8 @@ const OrderHistory = ({ user }) => {
         return '配送中';
       case 'processing':
         return '処理中';
+      case 'ordered':
+        return '発注済み';
       default:
         return '不明';
     }
@@ -58,6 +62,8 @@ const OrderHistory = ({ user }) => {
         return <LocalShipping />;
       case 'processing':
         return <Schedule />;
+      case 'ordered':
+        return <Receipt />;
       default:
         return null;
     }

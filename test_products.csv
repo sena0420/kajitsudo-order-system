@@ -1,0 +1,5 @@
+customerId,workCode,name,specification,origin,unitPrice,isActive
+CUST001,TEST001,テスト商品1,1箱,テスト県,1000,true
+CUST001,TEST002,テスト商品2,2kg,サンプル県,1500,true
+CUST002,TEST003,テスト商品3,5個入り,例示県,800,true
+CUST001,TEST004,テスト商品4,10L,実例県,2000,false

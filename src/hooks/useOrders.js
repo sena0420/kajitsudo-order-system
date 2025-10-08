@@ -6,6 +6,26 @@ export const useOrders = (customerId) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // localStorageから発注データを読み込む
+  const loadOrdersFromStorage = () => {
+    try {
+      const savedOrders = localStorage.getItem(`orders_${customerId}`);
+      return savedOrders ? JSON.parse(savedOrders) : [];
+    } catch (error) {
+      console.error('発注データの読み込みエラー:', error);
+      return [];
+    }
+  };
+
+  // localStorageに発注データを保存
+  const saveOrdersToStorage = (ordersData) => {
+    try {
+      localStorage.setItem(`orders_${customerId}`, JSON.stringify(ordersData));
+    } catch (error) {
+      console.error('発注データの保存エラー:', error);
+    }
+  };
+
   // 発注履歴の取得
   const fetchOrders = async () => {
     if (!customerId) return;
@@ -13,12 +33,15 @@ export const useOrders = (customerId) => {
     try {
       setLoading(true);
       setError('');
-      
+
       // 実際のFirestore実装では以下を使用
       // const ordersData = await orderService.getCustomerOrders(customerId);
-      
-      // 現在は仮データを使用
-      const sampleOrders = [
+
+      // localStorageから既存の発注データを取得
+      const savedOrders = loadOrdersFromStorage();
+
+      // 現在は仮データを使用（savedOrdersがない場合のみ）
+      const sampleOrders = savedOrders.length > 0 ? savedOrders : [
         {
           id: 'ORD001',
           customerId: customerId,
@@ -191,9 +214,68 @@ export const useOrders = (customerId) => {
     }
   };
 
-  // 新規発注を履歴に追加（楽観的更新用）
+  // 新規発注を履歴に追加
   const addOrder = (newOrder) => {
-    setOrders(prev => [newOrder, ...prev]);
+    const orderWithDefaults = {
+      ...newOrder,
+      id: `ORD${Date.now()}`,
+      status: 'ordered', // デフォルトは「発注済み」
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    setOrders(prev => {
+      const updatedOrders = [orderWithDefaults, ...prev];
+      saveOrdersToStorage(updatedOrders);
+      return updatedOrders;
+    });
+  };
+
+  // ステータスを更新
+  const updateOrderStatus = (orderId, newStatus) => {
+    setOrders(prev => {
+      const updatedOrders = prev.map(order =>
+        order.id === orderId
+          ? { ...order, status: newStatus, updatedAt: new Date() }
+          : order
+      );
+      saveOrdersToStorage(updatedOrders);
+      return updatedOrders;
+    });
+  };
+
+  // 複数の発注のステータスを一括更新
+  const updateMultipleOrdersStatus = (orderIds, newStatus) => {
+    setOrders(prev => {
+      const updatedOrders = prev.map(order =>
+        orderIds.includes(order.id)
+          ? { ...order, status: newStatus, updatedAt: new Date() }
+          : order
+      );
+      saveOrdersToStorage(updatedOrders);
+      return updatedOrders;
+    });
+  };
+
+  // 納期による自動ステータス更新
+  const updateStatusByDeliveryDate = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    setOrders(prev => {
+      const updatedOrders = prev.map(order => {
+        const deliveryDate = new Date(order.deliveryDate);
+        deliveryDate.setHours(0, 0, 0, 0);
+
+        // 納期が今日以前で、ステータスが「処理中」以上の場合は「配送完了」
+        if (deliveryDate <= today && (order.status === 'processing' || order.status === 'shipped')) {
+          return { ...order, status: 'delivered', updatedAt: new Date() };
+        }
+        return order;
+      });
+      saveOrdersToStorage(updatedOrders);
+      return updatedOrders;
+    });
   };
 
   // 顧客IDが変更されたら発注履歴を再取得
@@ -201,11 +283,21 @@ export const useOrders = (customerId) => {
     fetchOrders();
   }, [customerId]);
 
+  // コンポーネントマウント時に納期による自動更新を実行
+  useEffect(() => {
+    if (orders.length > 0) {
+      updateStatusByDeliveryDate();
+    }
+  }, [orders.length]);
+
   return {
     orders,
     loading,
     error,
     refetch: fetchOrders,
-    addOrder
+    addOrder,
+    updateOrderStatus,
+    updateMultipleOrdersStatus,
+    updateStatusByDeliveryDate
   };
 };

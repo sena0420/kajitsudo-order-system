@@ -1,0 +1,2190 @@
+import React, { useState, useRef } from 'react';
+import {
+  Box,
+  Paper,
+  Tabs,
+  Tab,
+  Typography,
+  Button,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
+  CircularProgress,
+  Chip,
+  Card,
+  CardContent,
+  Grid,
+  IconButton,
+  Collapse,
+  TextField,
+  FormControlLabel,
+  Switch,
+  Autocomplete,
+  TablePagination,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
+  List,
+  ListItem,
+  ListItemText
+} from '@mui/material';
+import {
+  Upload,
+  CloudUpload,
+  Visibility,
+  ExpandMore,
+  ExpandLess,
+  FileDownload,
+  History,
+  VpnKey,
+  PersonAdd,
+  FilterList,
+  Error as ErrorIcon,
+  CheckCircle
+} from '@mui/icons-material';
+import Radio from '@mui/material/Radio';
+import RadioGroup from '@mui/material/RadioGroup';
+import { generateCustomerPassword } from '../utils/passwordGenerator';
+import { formatCsvCodes, validateCustomerCode, validateWorkCode, generateNextWorkCode, formatCustomerCode, formatWorkCode } from '../utils/codeFormatter';
+import * as XLSX from 'xlsx';
+// Firebase Functions インポートをコンポーネント内に移動
+
+const AdminPage = ({ user }) => {
+  const [currentTab, setCurrentTab] = useState(0);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [dataType, setDataType] = useState('products');
+  const [previewData, setPreviewData] = useState([]);
+  const [processing, setProcessing] = useState(false);
+  const [uploadResult, setUploadResult] = useState(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [batchLogs, setBatchLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // 実行履歴の詳細表示用の状態
+  const [expandedLogId, setExpandedLogId] = useState(null);
+  const [errorDialogOpen, setErrorDialogOpen] = useState(false);
+  const [selectedLogErrors, setSelectedLogErrors] = useState([]);
+  const [selectedLogDataType, setSelectedLogDataType] = useState('');
+  const [selectedLogProcessedAt, setSelectedLogProcessedAt] = useState(null);
+
+  // フィルタリング用の状態
+  const [logFilter, setLogFilter] = useState({
+    dataType: 'all', // 'all', 'products', 'customers'
+    startDate: null,
+    endDate: null
+  });
+
+  // ページネーション用の状態
+  const [logPage, setLogPage] = useState(0);
+  const [logsPerPage] = useState(10);
+
+  // 重複確認ダイアログ用の状態
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
+  const [duplicateData, setDuplicateData] = useState(null);
+  const [duplicateType, setDuplicateType] = useState(''); // 'customer' or 'product'
+
+  // モックデータ：既存の顧客リスト
+  const mockCustomers = [
+    { customerId: '000001', customerName: 'サンプル顧客' },
+    { customerId: '000002', customerName: 'テスト商店' },
+    { customerId: '000003', customerName: '○○商事' },
+    { customerId: '000004', customerName: 'デモスーパー' },
+    { customerId: '000005', customerName: 'サンプルマート' }
+  ];
+  
+  // 手動管理用の状態
+  const [manualDataType, setManualDataType] = useState('customers');
+  const [customerForm, setCustomerForm] = useState({
+    customerId: '',
+    customerName: '',
+    email: '',
+    salesStaffId: '',
+    password: '',
+    isActive: true
+  });
+  const [productForm, setProductForm] = useState({
+    customerId: '',
+    customerName: '',
+    workCode: '',
+    productName: '',
+    specification: '',
+    origin: '',
+    quantity: '',
+    boxPrice: '',
+    leadTime: ''
+  });
+
+  // エクスポート用の状態
+  const [exportFilter, setExportFilter] = useState({
+    startDate: '',
+    endDate: '',
+    customerId: '',
+    status: 'all'
+  });
+  const [exportFormat, setExportFormat] = useState('csv'); // 'csv' or 'excel'
+  const [selectedColumns, setSelectedColumns] = useState(['workCode', 'deliveryDate', 'quantity', 'directShipCode']);
+  const [columnDialogOpen, setColumnDialogOpen] = useState(false);
+
+  // タブ変更ハンドラ
+  const handleTabChange = (event, newValue) => {
+    setCurrentTab(newValue);
+    if (newValue === 2) {
+      loadBatchLogs();
+    }
+  };
+
+  // ファイル選択ハンドラ
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      setSelectedFile(file);
+      parseCSVFile(file);
+    }
+  };
+
+  // CSVファイル解析（BOM対応）
+  const parseCSVFile = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      let text = e.target.result;
+
+      // BOM（Byte Order Mark）を除去
+      // UTF-8 BOMは文字列の先頭に"\uFEFF"として現れる
+      if (text.charCodeAt(0) === 0xFEFF) {
+        text = text.substring(1);
+      }
+
+      const lines = text.split('\n').filter(line => line.trim());
+      const headers = lines[0].split(',').map(h => h.trim());
+
+      let data = lines.slice(1).map((line, index) => {
+        const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
+        const record = {};
+        headers.forEach((header, i) => {
+          record[header] = values[i] || '';
+        });
+        record._rowIndex = index + 2; // ヘッダー行を考慮
+
+        // 顧客データでパスワードが'AUTO_GEN'の場合、自動生成パスワードを設定
+        if (dataType === 'customers' && record.password === 'AUTO_GEN') {
+          record.password = generateCustomerPassword();
+          record._passwordGenerated = true;
+        }
+
+        return record;
+      });
+
+      // コードフォーマット処理を適用（エラーハンドリング付き）
+      try {
+        data = formatCsvCodes(data);
+        
+        // バリデーション結果を追加
+        data = data.map(record => {
+          const validation = {};
+          
+          if (record.customerId) {
+            try {
+              const customerValidation = validateCustomerCode(record.customerId);
+              if (!customerValidation.isValid) {
+                validation.customerIdError = customerValidation.error;
+              }
+            } catch (error) {
+              validation.customerIdError = 'コードフォーマットエラー';
+            }
+          }
+          
+          if (record.workCode) {
+            try {
+              const workValidation = validateWorkCode(record.workCode);
+              if (!workValidation.isValid) {
+                validation.workCodeError = workValidation.error;
+              }
+            } catch (error) {
+              validation.workCodeError = 'コードフォーマットエラー';
+            }
+          }
+          
+          return { ...record, _validation: validation };
+        });
+      } catch (error) {
+        console.error('CSV処理エラー:', error);
+        // エラーが発生した場合は元のデータを使用
+      }
+
+      setPreviewData(data);
+      setShowPreview(true);
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  // データアップロード実行
+  const handleDataUpload = async () => {
+    if (!selectedFile || previewData.length === 0) return;
+
+    setProcessing(true);
+    setUploadResult(null);
+
+    try {
+      // デモモードではモック処理
+      const mockResult = {
+        success: previewData.length - 1, // 1件をエラーとしてシミュレート
+        total: previewData.length,
+        errors: previewData.length > 1 ? [{ 
+          row: 2, 
+          error: 'デモモード: サンプルエラー（実際の処理では修正されます）' 
+        }] : []
+      };
+
+      // 実際のFirebase実装では以下を使用
+      // const { functions } = await import('../firebase/config');
+      // const { httpsCallable } = await import('firebase/functions');
+      // const batchUpdateFunction = httpsCallable(functions, 'batchUpdateMasterData');
+      // const result = await batchUpdateFunction({
+      //   dataType: dataType,
+      //   records: previewData.map(({ _rowIndex, ...record }) => record),
+      //   options: { mode: 'upsert' }
+      // });
+
+      setTimeout(() => {
+        setUploadResult(mockResult);
+        setUploadDialogOpen(false);
+        setSelectedFile(null);
+        setPreviewData([]);
+        setShowPreview(false);
+        setProcessing(false);
+      }, 2000); // 2秒の処理時間をシミュレート
+      
+    } catch (error) {
+      console.error('アップロードエラー:', error);
+      setUploadResult({
+        success: 0,
+        total: previewData.length,
+        errors: [{ row: 0, error: error.message }]
+      });
+      setProcessing(false);
+    }
+  };
+
+  // バッチログ取得
+  const loadBatchLogs = async () => {
+    setLoadingLogs(true);
+    try {
+      // デモモード用のモックログ（拡張版）
+      const mockLogs = [
+        {
+          id: 'log1',
+          dataType: 'products',
+          fileName: 'products_20251006.csv',
+          uploadedBy: 'admin@example.com',
+          results: {
+            success: 48,
+            total: 50,
+            errors: [
+              {
+                row: 15,
+                field: 'boxPrice',
+                error: '単価が数値ではありません',
+                value: 'ABC',
+                rowData: {
+                  customerId: '000001',
+                  customerName: 'サンプル顧客',
+                  workCode: '00015',
+                  productName: 'トマト',
+                  specification: '1箱',
+                  origin: '北海道',
+                  quantity: '10',
+                  boxPrice: 'ABC',
+                  leadTime: '3'
+                }
+              },
+              {
+                row: 32,
+                field: 'workCode',
+                error: '作業コードの形式が正しくありません',
+                value: '123',
+                rowData: {
+                  customerId: '000002',
+                  customerName: 'テスト商店',
+                  workCode: '123',
+                  productName: 'きゅうり',
+                  specification: '1袋',
+                  origin: '群馬県',
+                  quantity: '20',
+                  boxPrice: '800',
+                  leadTime: '2'
+                }
+              }
+            ]
+          },
+          processedAt: new Date(Date.now() - 2 * 60 * 60 * 1000) // 2時間前
+        },
+        {
+          id: 'log2',
+          dataType: 'customers',
+          fileName: 'customers_20251006.csv',
+          uploadedBy: 'admin@example.com',
+          results: {
+            success: 12,
+            total: 12,
+            errors: []
+          },
+          processedAt: new Date(Date.now() - 5 * 60 * 60 * 1000) // 5時間前
+        },
+        {
+          id: 'log3',
+          dataType: 'products',
+          fileName: 'products_20251005.csv',
+          uploadedBy: 'staff@example.com',
+          results: {
+            success: 95,
+            total: 100,
+            errors: [
+              {
+                row: 8,
+                field: 'customerId',
+                error: '得意先コードが存在しません',
+                value: '999999',
+                rowData: {
+                  customerId: '999999',
+                  customerName: '不明な顧客',
+                  workCode: '00008',
+                  productName: 'レタス',
+                  specification: '1ケース',
+                  origin: '長野県',
+                  quantity: '15',
+                  boxPrice: '900',
+                  leadTime: '2'
+                }
+              },
+              {
+                row: 23,
+                field: 'leadTime',
+                error: 'リードタイムが範囲外です',
+                value: '365',
+                rowData: {
+                  customerId: '000001',
+                  customerName: 'サンプル顧客',
+                  workCode: '00023',
+                  productName: 'バナナ',
+                  specification: '13kg箱',
+                  origin: 'フィリピン',
+                  quantity: '50',
+                  boxPrice: '1800',
+                  leadTime: '365'
+                }
+              },
+              {
+                row: 45,
+                field: 'productName',
+                error: '商品名が未入力です',
+                value: '',
+                rowData: {
+                  customerId: '000003',
+                  customerName: '○○商事',
+                  workCode: '00045',
+                  productName: '',
+                  specification: '1箱',
+                  origin: '青森県',
+                  quantity: '8',
+                  boxPrice: '2500',
+                  leadTime: '3'
+                }
+              },
+              {
+                row: 67,
+                field: 'specification',
+                error: '規格が長すぎます',
+                value: 'very long text...',
+                rowData: {
+                  customerId: '000002',
+                  customerName: 'テスト商店',
+                  workCode: '00067',
+                  productName: 'みかん',
+                  specification: 'very long text that exceeds maximum length allowed',
+                  origin: '愛媛県',
+                  quantity: '30',
+                  boxPrice: '3200',
+                  leadTime: '2'
+                }
+              },
+              {
+                row: 89,
+                field: 'origin',
+                error: '産地情報が不正です',
+                value: 'Unknown',
+                rowData: {
+                  customerId: '000001',
+                  customerName: 'サンプル顧客',
+                  workCode: '00089',
+                  productName: 'キャベツ',
+                  specification: '1玉',
+                  origin: 'Unknown',
+                  quantity: '100',
+                  boxPrice: '150',
+                  leadTime: '1'
+                }
+              }
+            ]
+          },
+          processedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) // 1日前
+        },
+        {
+          id: 'log4',
+          dataType: 'customers',
+          fileName: 'customers_20251004.csv',
+          uploadedBy: 'admin@example.com',
+          results: {
+            success: 7,
+            total: 8,
+            errors: [
+              {
+                row: 4,
+                field: 'email',
+                error: 'メールアドレスの形式が正しくありません',
+                value: 'invalid-email',
+                rowData: {
+                  customerId: '000004',
+                  customerName: 'デモスーパー',
+                  email: 'invalid-email',
+                  salesStaffId: 'STAFF002',
+                  password: 'AUTO_GEN',
+                  isActive: 'true'
+                }
+              }
+            ]
+          },
+          processedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) // 2日前
+        },
+        {
+          id: 'log5',
+          dataType: 'products',
+          fileName: 'products_20251003.csv',
+          uploadedBy: 'staff@example.com',
+          results: {
+            success: 120,
+            total: 120,
+            errors: []
+          },
+          processedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) // 3日前
+        }
+      ];
+
+      // 実際のFirebase実装では以下を使用
+      // const { functions } = await import('../firebase/config');
+      // const { httpsCallable } = await import('firebase/functions');
+      // const getLogsFunction = httpsCallable(functions, 'getBatchLogs');
+      // const result = await getLogsFunction({ limit: 20 });
+      // setBatchLogs(result.data.logs);
+
+      setTimeout(() => {
+        setBatchLogs(mockLogs);
+        setLoadingLogs(false);
+      }, 1000);
+    } catch (error) {
+      console.error('ログ取得エラー:', error);
+      setLoadingLogs(false);
+    }
+  };
+
+  // ログのフィルタリング
+  const getFilteredLogs = () => {
+    return batchLogs.filter(log => {
+      // データ種別フィルタ
+      if (logFilter.dataType !== 'all' && log.dataType !== logFilter.dataType) {
+        return false;
+      }
+
+      // 期間フィルタ
+      if (logFilter.startDate && log.processedAt < new Date(logFilter.startDate)) {
+        return false;
+      }
+      if (logFilter.endDate) {
+        const endDate = new Date(logFilter.endDate);
+        endDate.setHours(23, 59, 59, 999); // 当日の終わりまで
+        if (log.processedAt > endDate) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  };
+
+  // ページネーション用のログ取得
+  const getPaginatedLogs = () => {
+    const filtered = getFilteredLogs();
+    const start = logPage * logsPerPage;
+    return filtered.slice(start, start + logsPerPage);
+  };
+
+  // エラー詳細ダイアログを開く
+  const handleOpenErrorDialog = (log) => {
+    setSelectedLogErrors(log.results.errors);
+    setSelectedLogDataType(log.dataType);
+    setSelectedLogProcessedAt(log.processedAt);
+    setErrorDialogOpen(true);
+  };
+
+  // 詳細の展開/折りたたみ
+  const handleToggleExpand = (logId) => {
+    setExpandedLogId(expandedLogId === logId ? null : logId);
+  };
+
+  // エラー行のCSVダウンロード（BOM付きUTF-8）- 元の行データをそのまま出力
+  const handleDownloadErrorCSV = (errors, dataType, processedAt) => {
+    // CSVエスケープ処理（カンマやダブルクォートを含む場合）
+    const escapeCSV = (str) => {
+      const value = str !== undefined && str !== null ? String(str) : '';
+      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    };
+
+    // ヘッダー行の生成
+    let csvContent = '';
+    if (dataType === 'products') {
+      csvContent = 'customerId,customerName,workCode,productName,specification,origin,quantity,boxPrice,leadTime\n';
+    } else if (dataType === 'customers') {
+      csvContent = 'customerId,customerName,email,salesStaffId,password,isActive\n';
+    }
+
+    // エラー行のデータを追加（元のCSVと同じ形式）
+    errors.forEach(error => {
+      if (error.rowData) {
+        const data = error.rowData;
+        if (dataType === 'products') {
+          csvContent += `${escapeCSV(data.customerId)},${escapeCSV(data.customerName)},${escapeCSV(data.workCode)},${escapeCSV(data.productName)},${escapeCSV(data.specification)},${escapeCSV(data.origin)},${escapeCSV(data.quantity)},${escapeCSV(data.boxPrice)},${escapeCSV(data.leadTime)}\n`;
+        } else if (dataType === 'customers') {
+          csvContent += `${escapeCSV(data.customerId)},${escapeCSV(data.customerName)},${escapeCSV(data.email)},${escapeCSV(data.salesStaffId)},${escapeCSV(data.password)},${escapeCSV(data.isActive)}\n`;
+        }
+      }
+    });
+
+    // BOM（Byte Order Mark）を追加してExcelで文字化けを防ぐ
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    const blob = new Blob([bom, csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+    link.setAttribute('href', url);
+    link.setAttribute('download', `errors_${dataType}_${timestamp}.csv`);
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // CSVテンプレートダウンロード（販売管理システム対応、BOM付きUTF-8）
+  const downloadTemplate = (type) => {
+    let template = '';
+    if (type === 'products') {
+      // 販売管理システムのフォーマット（得意先コード6桁、作業コード5桁）
+      template = 'customerId,customerName,workCode,productName,specification,origin,quantity,boxPrice,leadTime\n';
+      template += '000001,サンプル顧客,00001,トマト,1箱,北海道,10,1200,3\n';
+      template += '000001,サンプル顧客,00002,きゅうり,1袋,群馬県,20,800,2\n';
+      template += '000002,テスト商店,00003,レタス,1ケース,長野県,15,900,2\n';
+    } else if (type === 'customers') {
+      template = 'customerId,customerName,email,salesStaffId,password,isActive\n';
+      template += '000001,サンプル顧客,customer001@example.com,STAFF001,AUTO_GEN,true\n';
+      template += '000002,テスト商店,customer002@example.com,STAFF001,AUTO_GEN,true\n';
+      template += '000003,○○商事,customer003@example.com,STAFF002,AUTO_GEN,true\n';
+    }
+
+    // BOM（Byte Order Mark）を追加してExcelで文字化けを防ぐ
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    const blob = new Blob([bom, template], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${type}_template.csv`);
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // 手動管理ハンドラー
+  const handleGeneratePassword = () => {
+    const newPassword = generateCustomerPassword();
+    setCustomerForm(prev => ({ ...prev, password: newPassword }));
+  };
+
+  const handleGenerateWorkCode = () => {
+    // デモモード用：既存のモックコードから次のコードを生成
+    const mockExistingCodes = ['00001', '00002', '00003', '00010'];
+    const nextCode = generateNextWorkCode(mockExistingCodes);
+    setProductForm(prev => ({ ...prev, workCode: nextCode }));
+
+    // 実際のFirebase実装では以下を使用
+    // const existingProducts = await productService.getProductsByCustomerId(productForm.customerId);
+    // const existingCodes = existingProducts.map(p => p.workCode);
+    // const nextCode = generateNextWorkCode(existingCodes);
+  };
+
+  const handleCustomerFormChange = (field, value) => {
+    // 入力中はそのまま保存（フォーマットしない）
+    setCustomerForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleCustomerFormBlur = (field) => {
+    // フォーカスが外れた時にフォーマット
+    if (field === 'customerId') {
+      const validation = validateCustomerCode(customerForm.customerId);
+      setCustomerForm(prev => ({ ...prev, customerId: validation.formatted }));
+    }
+  };
+
+  const handleProductFormChange = (field, value) => {
+    // 入力中はそのまま保存（フォーマットしない）
+    setProductForm(prev => ({ ...prev, [field]: value }));
+
+    // 得意先コードが入力されたら、対応する得意先名を自動設定
+    if (field === 'customerId') {
+      const customer = mockCustomers.find(c => c.customerId === value);
+      if (customer) {
+        setProductForm(prev => ({ ...prev, customerName: customer.customerName }));
+      }
+    }
+  };
+
+  const handleProductFormBlur = (field) => {
+    // フォーカスが外れた時にフォーマット
+    if (field === 'customerId') {
+      const validation = validateCustomerCode(productForm.customerId);
+      const formattedCode = validation.formatted;
+      setProductForm(prev => ({ ...prev, customerId: formattedCode }));
+
+      // フォーマット後のコードで得意先名を検索
+      const customer = mockCustomers.find(c => c.customerId === formattedCode);
+      if (customer) {
+        setProductForm(prev => ({ ...prev, customerName: customer.customerName }));
+      }
+    } else if (field === 'workCode') {
+      const validation = validateWorkCode(productForm.workCode);
+      setProductForm(prev => ({ ...prev, workCode: validation.formatted }));
+    } else if (field === 'customerName') {
+      // 得意先名からコードを逆引き
+      const customer = mockCustomers.find(c => c.customerName === productForm.customerName);
+      if (customer) {
+        setProductForm(prev => ({ ...prev, customerId: customer.customerId }));
+      }
+    }
+  };
+
+  // 重複チェック（デモモード用）
+  const checkDuplicateCustomer = async (customerId) => {
+    // デモモード：既存データのシミュレーション
+    const mockExistingCustomers = ['000001', '000002', '000003'];
+    return mockExistingCustomers.includes(customerId);
+
+    // 実際のFirebase実装では以下を使用
+    // const existing = await customerService.getCustomerById(customerId);
+    // return existing !== null;
+  };
+
+  const checkDuplicateProduct = async (workCode) => {
+    // デモモード：既存データのシミュレーション（作業コードは完全に一意）
+    const mockExistingWorkCodes = ['00001', '00002', '00003', '00010'];
+    return mockExistingWorkCodes.includes(workCode);
+
+    // 実際のFirebase実装では以下を使用
+    // const existing = await productService.getProductByWorkCode(workCode);
+    // return existing !== null;
+  };
+
+  // 未使用のコードを取得
+  const getAvailableCustomerId = () => {
+    const existingIds = mockCustomers.map(c => parseInt(c.customerId, 10));
+    const maxId = Math.max(...existingIds);
+    return formatCustomerCode(maxId + 1);
+  };
+
+  const getAvailableWorkCode = () => {
+    const mockExistingWorkCodes = ['00001', '00002', '00003', '00010'];
+    const existingCodes = mockExistingWorkCodes.map(c => parseInt(c, 10));
+    const maxCode = Math.max(...existingCodes);
+    return formatWorkCode(maxCode + 1);
+  };
+
+  const handleManualSaveCustomer = async () => {
+    try {
+      // 重複チェック
+      const isDuplicate = await checkDuplicateCustomer(customerForm.customerId);
+
+      if (isDuplicate) {
+        // 重複があれば確認ダイアログを表示
+        setDuplicateData(customerForm);
+        setDuplicateType('customer');
+        setDuplicateDialogOpen(true);
+        return;
+      }
+
+      // 重複がなければそのまま保存
+      await saveCustomer(false);
+    } catch (error) {
+      console.error('顧客保存エラー:', error);
+      alert('保存に失敗しました');
+    }
+  };
+
+  const saveCustomer = async (isOverwrite) => {
+    try {
+      console.log('顧客データ保存:', customerForm, '上書き:', isOverwrite);
+      // 実際のFirebase実装では以下を使用
+      // if (isOverwrite) {
+      //   await customerService.updateCustomer(customerForm);
+      // } else {
+      //   await customerService.createCustomer(customerForm);
+      // }
+
+      // フォームリセット
+      setCustomerForm({
+        customerId: '',
+        customerName: '',
+        email: '',
+        salesStaffId: '',
+        password: '',
+        isActive: true
+      });
+
+      alert(`顧客データを${isOverwrite ? '上書き保存' : '新規登録'}しました（デモモード）`);
+      setDuplicateDialogOpen(false);
+    } catch (error) {
+      console.error('顧客保存エラー:', error);
+      alert('保存に失敗しました');
+    }
+  };
+
+  const handleManualSaveProduct = async () => {
+    try {
+      // 重複チェック（作業コードのみで判定）
+      const isDuplicate = await checkDuplicateProduct(productForm.workCode);
+
+      if (isDuplicate) {
+        // 重複があれば確認ダイアログを表示
+        setDuplicateData(productForm);
+        setDuplicateType('product');
+        setDuplicateDialogOpen(true);
+        return;
+      }
+
+      // 重複がなければそのまま保存
+      await saveProduct(false);
+    } catch (error) {
+      console.error('商品保存エラー:', error);
+      alert('保存に失敗しました');
+    }
+  };
+
+  const saveProduct = async (isOverwrite) => {
+    try {
+      console.log('商品データ保存:', productForm, '上書き:', isOverwrite);
+      // 実際のFirebase実装では以下を使用
+      // if (isOverwrite) {
+      //   await productService.updateProduct(productForm);
+      // } else {
+      //   await productService.createProduct(productForm);
+      // }
+
+      // フォームリセット
+      setProductForm({
+        customerId: '',
+        customerName: '',
+        workCode: '',
+        productName: '',
+        specification: '',
+        origin: '',
+        quantity: '',
+        boxPrice: '',
+        leadTime: ''
+      });
+
+      alert(`商品データを${isOverwrite ? '上書き保存' : '新規登録'}しました（デモモード）`);
+      setDuplicateDialogOpen(false);
+    } catch (error) {
+      console.error('商品保存エラー:', error);
+      alert('保存に失敗しました');
+    }
+  };
+
+  // モックの発注データ取得（localStorageから全顧客の発注データを取得）
+  const getMockOrders = () => {
+    const allOrders = [];
+
+    // すべての顧客のlocalStorageから発注データを取得
+    mockCustomers.forEach(customer => {
+      try {
+        const savedOrders = localStorage.getItem(`orders_${customer.customerId}`);
+        if (savedOrders) {
+          const orders = JSON.parse(savedOrders);
+          allOrders.push(...orders);
+        }
+      } catch (error) {
+        console.error(`顧客${customer.customerId}の発注データ読み込みエラー:`, error);
+      }
+    });
+
+    return allOrders;
+  };
+
+  // 利用可能な列の定義
+  const availableColumns = [
+    { key: 'orderDate', label: '発注日' },
+    { key: 'customerId', label: '得意先コード' },
+    { key: 'customerName', label: '得意先名' },
+    { key: 'workCode', label: '作業コード' },
+    { key: 'productName', label: '商品名' },
+    { key: 'specification', label: '規格' },
+    { key: 'origin', label: '産地' },
+    { key: 'quantity', label: '数量' },
+    { key: 'unitPrice', label: '単価' },
+    { key: 'deliveryDate', label: '配送日' },
+    { key: 'status', label: 'ステータス' },
+    { key: 'directShipCode', label: '直送コード' }
+  ];
+
+  // 列の選択/選択解除
+  const handleColumnToggle = (columnKey) => {
+    setSelectedColumns(prev => {
+      if (prev.includes(columnKey)) {
+        return prev.filter(key => key !== columnKey);
+      } else {
+        return [...prev, columnKey];
+      }
+    });
+  };
+
+  // フィルタリングされた発注データを取得
+  const getFilteredOrders = () => {
+    const orders = getMockOrders();
+    return orders.filter(order => {
+      // 期間フィルタ
+      if (exportFilter.startDate && order.orderDate < exportFilter.startDate) {
+        return false;
+      }
+      if (exportFilter.endDate && order.orderDate > exportFilter.endDate) {
+        return false;
+      }
+      // 得意先フィルタ
+      if (exportFilter.customerId && order.customerId !== exportFilter.customerId) {
+        return false;
+      }
+      // ステータスフィルタ
+      if (exportFilter.status !== 'all' && order.status !== exportFilter.status) {
+        return false;
+      }
+      return true;
+    });
+  };
+
+  // CSVエクスポート
+  const handleExportCSV = () => {
+    const orders = getFilteredOrders();
+
+    // エクスポート対象の発注IDを取得
+    const exportedOrderIds = orders
+      .filter(order => order.status === 'ordered')
+      .map(order => order.id);
+
+    // 発注データを行単位に展開
+    const rows = [];
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        const row = {};
+        selectedColumns.forEach(col => {
+          if (col === 'orderDate') row[col] = order.orderDate;
+          else if (col === 'customerId') row[col] = order.customerId;
+          else if (col === 'customerName') row[col] = order.customerName;
+          else if (col === 'status') row[col] = order.status === 'processing' ? '処理中' : order.status === 'shipped' ? '配送中' : order.status === 'delivered' ? '配送完了' : '発注済み';
+          else if (col === 'directShipCode') row[col] = ''; // 直送コードは空欄
+          else row[col] = item[col] || '';
+        });
+        rows.push(row);
+      });
+    });
+
+    // CSVヘッダー
+    const headers = selectedColumns.map(key => {
+      const column = availableColumns.find(c => c.key === key);
+      return column ? column.label : key;
+    });
+
+    // CSV本文
+    let csvContent = headers.join(',') + '\n';
+    rows.forEach(row => {
+      const values = selectedColumns.map(key => {
+        const value = row[key] || '';
+        // カンマや改行を含む場合はダブルクォートで囲む
+        if (String(value).includes(',') || String(value).includes('\n') || String(value).includes('"')) {
+          return `"${String(value).replace(/"/g, '""')}"`;
+        }
+        return value;
+      });
+      csvContent += values.join(',') + '\n';
+    });
+
+    // BOM付きUTF-8でダウンロード
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    const blob = new Blob([bom, csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `orders_export_${timestamp}.csv`);
+    link.click();
+    URL.revokeObjectURL(url);
+
+    // エクスポート後、ステータスを「処理中」に更新
+    if (exportedOrderIds.length > 0) {
+      updateOrdersStatusInStorage(exportedOrderIds, 'processing');
+    }
+  };
+
+  // Excelエクスポート
+  const handleExportExcel = () => {
+    const orders = getFilteredOrders();
+
+    // エクスポート対象の発注IDを取得
+    const exportedOrderIds = orders
+      .filter(order => order.status === 'ordered')
+      .map(order => order.id);
+
+    // 発注データを行単位に展開
+    const rows = [];
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        const row = {};
+        selectedColumns.forEach(col => {
+          const column = availableColumns.find(c => c.key === col);
+          const label = column ? column.label : col;
+
+          if (col === 'orderDate') row[label] = order.orderDate;
+          else if (col === 'customerId') row[label] = order.customerId;
+          else if (col === 'customerName') row[label] = order.customerName;
+          else if (col === 'status') row[label] = order.status === 'processing' ? '処理中' : order.status === 'shipped' ? '配送中' : order.status === 'delivered' ? '配送完了' : '発注済み';
+          else if (col === 'directShipCode') row[label] = ''; // 直送コードは空欄
+          else row[label] = item[col] || '';
+        });
+        rows.push(row);
+      });
+    });
+
+    // Excelワークブック作成
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '発注データ');
+
+    // ダウンロード
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    XLSX.writeFile(workbook, `orders_export_${timestamp}.xlsx`);
+
+    // エクスポート後、ステータスを「処理中」に更新
+    if (exportedOrderIds.length > 0) {
+      updateOrdersStatusInStorage(exportedOrderIds, 'processing');
+    }
+  };
+
+  // localStorageの発注ステータスを更新
+  const updateOrdersStatusInStorage = (orderIds, newStatus) => {
+    // すべての顧客のlocalStorageをチェック
+    const allCustomers = mockCustomers.map(c => c.customerId);
+
+    allCustomers.forEach(customerId => {
+      try {
+        const savedOrders = localStorage.getItem(`orders_${customerId}`);
+        if (savedOrders) {
+          const orders = JSON.parse(savedOrders);
+          const updatedOrders = orders.map(order =>
+            orderIds.includes(order.id)
+              ? { ...order, status: newStatus, updatedAt: new Date().toISOString() }
+              : order
+          );
+          localStorage.setItem(`orders_${customerId}`, JSON.stringify(updatedOrders));
+        }
+      } catch (error) {
+        console.error(`顧客${customerId}の発注データ更新エラー:`, error);
+      }
+    });
+  };
+
+  return (
+    <Box>
+      <Typography variant="h4" sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
+        <Chip 
+          label="管理者" 
+          color="warning" 
+          size="small" 
+          sx={{ mr: 2 }} 
+        />
+        マスタデータ管理
+      </Typography>
+
+      <Paper sx={{ width: '100%' }}>
+        <Tabs
+          value={currentTab}
+          onChange={handleTabChange}
+          variant="fullWidth"
+        >
+          <Tab label="一括更新" />
+          <Tab label="手動管理" />
+          <Tab label="実行履歴" />
+          <Tab label="発注データエクスポート" />
+        </Tabs>
+
+        {/* 一括更新タブ */}
+        {currentTab === 0 && (
+          <Box sx={{ p: 3 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      商品マスタ一括更新
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      顧客別商品データをCSV形式で一括更新できます
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button
+                        variant="outlined"
+                        startIcon={<FileDownload />}
+                        onClick={() => downloadTemplate('products')}
+                        size="small"
+                      >
+                        テンプレート
+                      </Button>
+                      <Button
+                        variant="contained"
+                        startIcon={<CloudUpload />}
+                        onClick={() => {
+                          setDataType('products');
+                          setUploadDialogOpen(true);
+                        }}
+                      >
+                        アップロード
+                      </Button>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      顧客マスタ一括更新
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      顧客情報をCSV形式で一括更新できます
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button
+                        variant="outlined"
+                        startIcon={<FileDownload />}
+                        onClick={() => downloadTemplate('customers')}
+                        size="small"
+                      >
+                        テンプレート
+                      </Button>
+                      <Button
+                        variant="contained"
+                        startIcon={<CloudUpload />}
+                        onClick={() => {
+                          setDataType('customers');
+                          setUploadDialogOpen(true);
+                        }}
+                      >
+                        アップロード
+                      </Button>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+
+            {/* アップロード結果表示 */}
+            {uploadResult && (
+              <Alert 
+                severity={uploadResult.errors.length === 0 ? 'success' : 'warning'}
+                sx={{ mt: 3 }}
+              >
+                <Typography variant="body1">
+                  処理完了: 成功 {uploadResult.success}件 / 全体 {uploadResult.total}件
+                </Typography>
+                {uploadResult.errors.length > 0 && (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="body2">エラー詳細:</Typography>
+                    {uploadResult.errors.slice(0, 3).map((error, index) => (
+                      <Typography key={index} variant="body2" color="error">
+                        行{error.row}: {error.error}
+                      </Typography>
+                    ))}
+                    {uploadResult.errors.length > 3 && (
+                      <Typography variant="body2" color="text.secondary">
+                        ...他 {uploadResult.errors.length - 3} 件のエラー
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+              </Alert>
+            )}
+          </Box>
+        )}
+
+        {/* 手動管理タブ */}
+        {currentTab === 1 && (
+          <Box sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography variant="h6">
+                個別データ管理
+              </Typography>
+              <Box>
+                <Button
+                  variant={manualDataType === 'customers' ? 'contained' : 'outlined'}
+                  onClick={() => setManualDataType('customers')}
+                  sx={{ mr: 1 }}
+                  startIcon={<PersonAdd />}
+                >
+                  顧客登録
+                </Button>
+                <Button
+                  variant={manualDataType === 'products' ? 'contained' : 'outlined'}
+                  onClick={() => setManualDataType('products')}
+                  startIcon={<Upload />}
+                >
+                  商品登録
+                </Button>
+              </Box>
+            </Box>
+
+            {/* 顧客登録フォーム */}
+            {manualDataType === 'customers' && (
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    顧客情報登録
+                  </Typography>
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="得意先コード"
+                        value={customerForm.customerId}
+                        onChange={(e) => handleCustomerFormChange('customerId', e.target.value)}
+                        onBlur={() => handleCustomerFormBlur('customerId')}
+                        placeholder="000001（6桁の数字）"
+                        required
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="得意先名"
+                        value={customerForm.customerName}
+                        onChange={(e) => handleCustomerFormChange('customerName', e.target.value)}
+                        placeholder="○○商店"
+                        required
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="メールアドレス"
+                        type="email"
+                        value={customerForm.email}
+                        onChange={(e) => handleCustomerFormChange('email', e.target.value)}
+                        placeholder="customer@example.com"
+                        required
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="営業担当者ID"
+                        value={customerForm.salesStaffId}
+                        onChange={(e) => handleCustomerFormChange('salesStaffId', e.target.value)}
+                        placeholder="STAFF001"
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={8}>
+                      <TextField
+                        fullWidth
+                        label="パスワード（7桁）"
+                        value={customerForm.password}
+                        onChange={(e) => handleCustomerFormChange('password', e.target.value)}
+                        placeholder="自動生成またはマニュアル入力"
+                        InputProps={{
+                          readOnly: false,
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <Button
+                        variant="outlined"
+                        startIcon={<VpnKey />}
+                        onClick={handleGeneratePassword}
+                        fullWidth
+                        sx={{ height: '56px' }}
+                      >
+                        パスワード自動生成
+                      </Button>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={customerForm.isActive}
+                            onChange={(e) => handleCustomerFormChange('isActive', e.target.checked)}
+                          />
+                        }
+                        label="アクティブ"
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <Button
+                        variant="contained"
+                        onClick={handleManualSaveCustomer}
+                        disabled={!customerForm.customerId || !customerForm.customerName || !customerForm.email}
+                        size="large"
+                      >
+                        顧客データを保存
+                      </Button>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 商品登録フォーム */}
+            {manualDataType === 'products' && (
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    商品情報登録
+                  </Typography>
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="得意先コード"
+                        value={productForm.customerId}
+                        onChange={(e) => handleProductFormChange('customerId', e.target.value)}
+                        onBlur={() => handleProductFormBlur('customerId')}
+                        placeholder="000001（6桁の数字）"
+                        required
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Autocomplete
+                        freeSolo
+                        options={mockCustomers.map(c => c.customerName)}
+                        value={productForm.customerName}
+                        onChange={(event, newValue) => {
+                          handleProductFormChange('customerName', newValue || '');
+                        }}
+                        onInputChange={(event, newInputValue) => {
+                          handleProductFormChange('customerName', newInputValue);
+                        }}
+                        onBlur={() => handleProductFormBlur('customerName')}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="得意先名"
+                            placeholder="○○商店"
+                            required
+                          />
+                        )}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="作業コード"
+                        value={productForm.workCode}
+                        onChange={(e) => handleProductFormChange('workCode', e.target.value)}
+                        onBlur={() => handleProductFormBlur('workCode')}
+                        placeholder="00001（5桁の数字）"
+                        required
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Button
+                        variant="outlined"
+                        startIcon={<VpnKey />}
+                        onClick={handleGenerateWorkCode}
+                        fullWidth
+                        sx={{ height: '56px' }}
+                      >
+                        次のコードを生成
+                      </Button>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="商品名"
+                        value={productForm.productName}
+                        onChange={(e) => handleProductFormChange('productName', e.target.value)}
+                        placeholder="トマト"
+                        required
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        label="規格"
+                        value={productForm.specification}
+                        onChange={(e) => handleProductFormChange('specification', e.target.value)}
+                        placeholder="1箱"
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        label="産地"
+                        value={productForm.origin}
+                        onChange={(e) => handleProductFormChange('origin', e.target.value)}
+                        placeholder="北海道"
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        label="入数"
+                        type="number"
+                        value={productForm.quantity}
+                        onChange={(e) => handleProductFormChange('quantity', e.target.value)}
+                        placeholder="10"
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="箱単価（円）"
+                        type="number"
+                        value={productForm.boxPrice}
+                        onChange={(e) => handleProductFormChange('boxPrice', e.target.value)}
+                        placeholder="1200"
+                        required
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="発注リードタイム（日）"
+                        type="number"
+                        value={productForm.leadTime}
+                        onChange={(e) => handleProductFormChange('leadTime', e.target.value)}
+                        placeholder="3"
+                        required
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <Button
+                        variant="contained"
+                        onClick={handleManualSaveProduct}
+                        disabled={!productForm.customerId || !productForm.productName || !productForm.boxPrice || !productForm.leadTime}
+                        size="large"
+                      >
+                        商品データを保存
+                      </Button>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            )}
+          </Box>
+        )}
+
+        {/* 発注データエクスポートタブ */}
+        {currentTab === 3 && (
+          <Box sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              発注データエクスポート
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              発注データをCSVまたはExcel形式でエクスポートできます
+            </Typography>
+
+            {/* フィルター設定 */}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom>
+                  エクスポート条件
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="開始日"
+                      type="date"
+                      value={exportFilter.startDate}
+                      onChange={(e) => setExportFilter({ ...exportFilter, startDate: e.target.value })}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="終了日"
+                      type="date"
+                      value={exportFilter.endDate}
+                      onChange={(e) => setExportFilter({ ...exportFilter, endDate: e.target.value })}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Autocomplete
+                      size="small"
+                      options={mockCustomers}
+                      getOptionLabel={(option) => `${option.customerId} - ${option.customerName}`}
+                      value={mockCustomers.find(c => c.customerId === exportFilter.customerId) || null}
+                      onChange={(event, newValue) => {
+                        setExportFilter({ ...exportFilter, customerId: newValue ? newValue.customerId : '' });
+                      }}
+                      renderInput={(params) => (
+                        <TextField {...params} label="得意先" placeholder="全て" />
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>ステータス</InputLabel>
+                      <Select
+                        value={exportFilter.status}
+                        label="ステータス"
+                        onChange={(e) => setExportFilter({ ...exportFilter, status: e.target.value })}
+                      >
+                        <MenuItem value="all">すべて</MenuItem>
+                        <MenuItem value="processing">処理中</MenuItem>
+                        <MenuItem value="shipped">配送中</MenuItem>
+                        <MenuItem value="delivered">配送完了</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
+
+                {/* データプレビュー */}
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    エクスポート対象: {getFilteredOrders().reduce((total, order) => total + order.items.length, 0)} 件
+                  </Typography>
+                </Box>
+              </CardContent>
+            </Card>
+
+            {/* 出力列設定 */}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="subtitle1">
+                    出力列の設定
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => setColumnDialogOpen(true)}
+                  >
+                    列を選択
+                  </Button>
+                </Box>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {selectedColumns.map(key => {
+                    const column = availableColumns.find(c => c.key === key);
+                    return (
+                      <Chip
+                        key={key}
+                        label={column ? column.label : key}
+                        onDelete={() => handleColumnToggle(key)}
+                        color="primary"
+                        variant="outlined"
+                      />
+                    );
+                  })}
+                </Box>
+                {selectedColumns.length === 0 && (
+                  <Alert severity="warning" sx={{ mt: 2 }}>
+                    出力する列を選択してください
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 出力形式とエクスポート */}
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom>
+                  出力形式
+                </Typography>
+                <RadioGroup
+                  value={exportFormat}
+                  onChange={(e) => setExportFormat(e.target.value)}
+                  sx={{ mb: 2 }}
+                >
+                  <FormControlLabel
+                    value="csv"
+                    control={<Radio />}
+                    label="CSV形式"
+                  />
+                  <FormControlLabel
+                    value="excel"
+                    control={<Radio />}
+                    label="Excel形式"
+                  />
+                </RadioGroup>
+
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <Button
+                    variant="contained"
+                    startIcon={<FileDownload />}
+                    onClick={exportFormat === 'csv' ? handleExportCSV : handleExportExcel}
+                    disabled={selectedColumns.length === 0 || getFilteredOrders().length === 0}
+                    size="large"
+                  >
+                    {exportFormat === 'csv' ? 'CSVでダウンロード' : 'Excelでダウンロード'}
+                  </Button>
+                </Box>
+
+                {getFilteredOrders().length === 0 && (
+                  <Alert severity="info" sx={{ mt: 2 }}>
+                    エクスポート対象のデータがありません
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+          </Box>
+        )}
+
+        {/* 実行履歴タブ */}
+        {currentTab === 2 && (
+          <Box sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography variant="h6">
+                バッチ処理履歴
+              </Typography>
+              <Button
+                onClick={loadBatchLogs}
+                startIcon={loadingLogs ? <CircularProgress size={16} /> : <History />}
+                disabled={loadingLogs}
+              >
+                更新
+              </Button>
+            </Box>
+
+            {/* フィルタリングセクション */}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <FilterList />
+                  <Typography variant="subtitle1">フィルター</Typography>
+                </Box>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={4}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>データ種別</InputLabel>
+                      <Select
+                        value={logFilter.dataType}
+                        label="データ種別"
+                        onChange={(e) => {
+                          setLogFilter({ ...logFilter, dataType: e.target.value });
+                          setLogPage(0); // ページをリセット
+                        }}
+                      >
+                        <MenuItem value="all">すべて</MenuItem>
+                        <MenuItem value="products">商品マスタ</MenuItem>
+                        <MenuItem value="customers">顧客マスタ</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="開始日"
+                      type="date"
+                      value={logFilter.startDate || ''}
+                      onChange={(e) => {
+                        setLogFilter({ ...logFilter, startDate: e.target.value });
+                        setLogPage(0);
+                      }}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="終了日"
+                      type="date"
+                      value={logFilter.endDate || ''}
+                      onChange={(e) => {
+                        setLogFilter({ ...logFilter, endDate: e.target.value });
+                        setLogPage(0);
+                      }}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                </Grid>
+                {(logFilter.dataType !== 'all' || logFilter.startDate || logFilter.endDate) && (
+                  <Box sx={{ mt: 2 }}>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setLogFilter({ dataType: 'all', startDate: null, endDate: null });
+                        setLogPage(0);
+                      }}
+                    >
+                      フィルターをクリア
+                    </Button>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 履歴テーブル */}
+            <TableContainer component={Paper}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell width="40px"></TableCell>
+                    <TableCell>実行日時</TableCell>
+                    <TableCell>データ種別</TableCell>
+                    <TableCell>ファイル名</TableCell>
+                    <TableCell align="center">成功</TableCell>
+                    <TableCell align="center">エラー</TableCell>
+                    <TableCell align="center">状態</TableCell>
+                    <TableCell align="center">操作</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {getPaginatedLogs().length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} align="center">
+                        <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
+                          {loadingLogs ? '読み込み中...' : 'データがありません'}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    getPaginatedLogs().map((log) => (
+                      <React.Fragment key={log.id}>
+                        <TableRow hover>
+                          <TableCell>
+                            <IconButton
+                              size="small"
+                              onClick={() => handleToggleExpand(log.id)}
+                            >
+                              {expandedLogId === log.id ? <ExpandLess /> : <ExpandMore />}
+                            </IconButton>
+                          </TableCell>
+                          <TableCell>
+                            {log.processedAt?.toLocaleString('ja-JP', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={log.dataType === 'products' ? '商品' : '顧客'}
+                              size="small"
+                              color={log.dataType === 'products' ? 'primary' : 'secondary'}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                              {log.fileName}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Chip
+                              icon={<CheckCircle />}
+                              label={log.results.success}
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            {log.results.errors.length > 0 ? (
+                              <Chip
+                                icon={<ErrorIcon />}
+                                label={log.results.errors.length}
+                                size="small"
+                                color="error"
+                              />
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">
+                                0
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell align="center">
+                            {log.results.errors.length === 0 ? (
+                              <Chip label="完了" size="small" color="success" />
+                            ) : log.results.success > 0 ? (
+                              <Chip label="一部エラー" size="small" color="warning" />
+                            ) : (
+                              <Chip label="失敗" size="small" color="error" />
+                            )}
+                          </TableCell>
+                          <TableCell align="center">
+                            {log.results.errors.length > 0 && (
+                              <IconButton
+                                size="small"
+                                onClick={() => handleOpenErrorDialog(log)}
+                                color="primary"
+                              >
+                                <Visibility />
+                              </IconButton>
+                            )}
+                          </TableCell>
+                        </TableRow>
+
+                        {/* 詳細情報の展開行 */}
+                        <TableRow>
+                          <TableCell colSpan={8} sx={{ py: 0, borderBottom: expandedLogId === log.id ? undefined : 'none' }}>
+                            <Collapse in={expandedLogId === log.id} timeout="auto" unmountOnExit>
+                              <Box sx={{ py: 2, px: 3, bgcolor: 'action.hover' }}>
+                                <Grid container spacing={2}>
+                                  <Grid item xs={12} md={6}>
+                                    <Typography variant="body2" color="text.secondary">
+                                      アップロード者
+                                    </Typography>
+                                    <Typography variant="body1">
+                                      {log.uploadedBy}
+                                    </Typography>
+                                  </Grid>
+                                  <Grid item xs={12} md={6}>
+                                    <Typography variant="body2" color="text.secondary">
+                                      処理結果
+                                    </Typography>
+                                    <Typography variant="body1">
+                                      {log.results.success} / {log.results.total} 件成功
+                                      {log.results.errors.length > 0 && (
+                                        <span style={{ color: '#d32f2f', marginLeft: 8 }}>
+                                          ({log.results.errors.length} 件エラー)
+                                        </span>
+                                      )}
+                                    </Typography>
+                                  </Grid>
+                                  {log.results.errors.length > 0 && (
+                                    <Grid item xs={12}>
+                                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                                        エラーサマリー（最大3件表示）
+                                      </Typography>
+                                      <List dense>
+                                        {log.results.errors.slice(0, 3).map((error, idx) => (
+                                          <ListItem key={idx}>
+                                            <ListItemText
+                                              primary={`行${error.row}: ${error.error}`}
+                                              secondary={error.field ? `フィールド: ${error.field}` : undefined}
+                                            />
+                                          </ListItem>
+                                        ))}
+                                      </List>
+                                      {log.results.errors.length > 3 && (
+                                        <Typography variant="body2" color="text.secondary">
+                                          ... 他 {log.results.errors.length - 3} 件のエラー
+                                        </Typography>
+                                      )}
+                                    </Grid>
+                                  )}
+                                </Grid>
+                              </Box>
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                      </React.Fragment>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+
+              {/* ページネーション */}
+              <TablePagination
+                component="div"
+                count={getFilteredLogs().length}
+                page={logPage}
+                onPageChange={(event, newPage) => setLogPage(newPage)}
+                rowsPerPage={logsPerPage}
+                rowsPerPageOptions={[10]}
+                labelRowsPerPage="表示件数:"
+                labelDisplayedRows={({ from, to, count }) => `${from}-${to} / 全${count}件`}
+              />
+            </TableContainer>
+          </Box>
+        )}
+      </Paper>
+
+      {/* アップロードダイアログ */}
+      <Dialog 
+        open={uploadDialogOpen} 
+        onClose={() => setUploadDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          {dataType === 'products' ? '商品マスタ' : '顧客マスタ'}データアップロード
+        </DialogTitle>
+        <DialogContent>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+          />
+          
+          {!selectedFile ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Button
+                variant="contained"
+                startIcon={<Upload />}
+                onClick={() => fileInputRef.current?.click()}
+                size="large"
+              >
+                CSVファイルを選択
+              </Button>
+              <Typography variant="body2" sx={{ mt: 2, color: 'text.secondary' }}>
+                UTF-8エンコードのCSVファイルを選択してください
+              </Typography>
+            </Box>
+          ) : (
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                選択ファイル: {selectedFile.name}
+              </Typography>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="body1">
+                  データ件数: {previewData.length}件
+                </Typography>
+                <IconButton
+                  onClick={() => setShowPreview(!showPreview)}
+                  size="small"
+                >
+                  {showPreview ? <ExpandLess /> : <ExpandMore />}
+                </IconButton>
+              </Box>
+
+              <Collapse in={showPreview}>
+                <TableContainer component={Paper} sx={{ maxHeight: 300 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        {previewData.length > 0 && Object.keys(previewData[0])
+                          .filter(key => !key.startsWith('_')) // 内部フィールドを除外
+                          .map(key => (
+                            <TableCell key={key}>{key}</TableCell>
+                          ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {previewData.slice(0, 10).map((row, index) => (
+                        <TableRow key={index}>
+                          {Object.keys(row)
+                            .filter(key => !key.startsWith('_')) // 内部フィールドを除外
+                            .map(key => {
+                              const value = row[key];
+                              // オブジェクトの場合は文字列に変換、nullやundefinedの場合は空文字に
+                              const displayValue = value === null || value === undefined 
+                                ? '' 
+                                : typeof value === 'object' 
+                                  ? JSON.stringify(value) 
+                                  : String(value);
+                              
+                              // バリデーションエラーがある場合の表示
+                              const hasError = row._validation && 
+                                (row._validation.customerIdError || row._validation.workCodeError);
+                              
+                              return (
+                                <TableCell 
+                                  key={key}
+                                  sx={{ 
+                                    color: hasError && (key === 'customerId' || key === 'workCode') ? 'error.main' : 'inherit',
+                                    fontWeight: hasError && (key === 'customerId' || key === 'workCode') ? 'bold' : 'normal'
+                                  }}
+                                >
+                                  {displayValue}
+                                  {hasError && key === 'customerId' && row._validation.customerIdError && (
+                                    <Typography variant="caption" color="error" display="block">
+                                      {row._validation.customerIdError}
+                                    </Typography>
+                                  )}
+                                  {hasError && key === 'workCode' && row._validation.workCodeError && (
+                                    <Typography variant="caption" color="error" display="block">
+                                      {row._validation.workCodeError}
+                                    </Typography>
+                                  )}
+                                </TableCell>
+                              );
+                            })}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+                {previewData.length > 10 && (
+                  <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
+                    ... 他 {previewData.length - 10} 件のデータ
+                  </Typography>
+                )}
+              </Collapse>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUploadDialogOpen(false)}>
+            キャンセル
+          </Button>
+          <Button
+            onClick={handleDataUpload}
+            variant="contained"
+            disabled={!selectedFile || processing}
+            startIcon={processing && <CircularProgress size={16} />}
+          >
+            {processing ? '処理中...' : 'アップロード実行'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 重複確認ダイアログ */}
+      <Dialog
+        open={duplicateDialogOpen}
+        onClose={() => setDuplicateDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          データ重複の確認
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {duplicateType === 'customer' ? (
+              <>
+                得意先コード「<strong>{duplicateData?.customerId}</strong>」は既に登録されています。
+              </>
+            ) : (
+              <>
+                作業コード「<strong>{duplicateData?.workCode}</strong>」は既に登録されています。
+              </>
+            )}
+          </Alert>
+
+          {/* 未使用コードのおすすめ */}
+          <Alert severity="info" sx={{ mb: 2 }}>
+            {duplicateType === 'customer' ? (
+              <>
+                未使用の得意先コード: <strong>{getAvailableCustomerId()}</strong>
+              </>
+            ) : (
+              <>
+                未使用の作業コード: <strong>{getAvailableWorkCode()}</strong>
+              </>
+            )}
+          </Alert>
+
+          <Typography variant="body1" gutterBottom>
+            既存データを上書きしますか？
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            ※上書きすると既存データが完全に置き換わります
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDuplicateDialogOpen(false)}>
+            キャンセル
+          </Button>
+          <Button
+            onClick={() => {
+              if (duplicateType === 'customer') {
+                saveCustomer(true);
+              } else {
+                saveProduct(true);
+              }
+            }}
+            variant="contained"
+            color="warning"
+          >
+            上書き保存
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* エラー詳細ダイアログ */}
+      <Dialog
+        open={errorDialogOpen}
+        onClose={() => setErrorDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <ErrorIcon color="error" />
+              エラー詳細
+            </Box>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<FileDownload />}
+              onClick={() => handleDownloadErrorCSV(selectedLogErrors, selectedLogDataType, selectedLogProcessedAt)}
+            >
+              エラー行をダウンロード
+            </Button>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {selectedLogErrors.length} 件のエラーが発生しました
+          </Alert>
+
+          {/* 警告メッセージ */}
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2" fontWeight="bold" gutterBottom>
+              ⚠️ データ更新時の注意事項
+            </Typography>
+            <Typography variant="body2" component="div">
+              • このエラー一覧は <strong>{selectedLogProcessedAt?.toLocaleString('ja-JP', {
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit'
+              })}</strong> 時点のデータです
+            </Typography>
+            <Typography variant="body2" component="div">
+              • ダウンロード後に他の担当者がマスタを更新している可能性があります
+            </Typography>
+            <Typography variant="body2" component="div">
+              • 修正後は<strong>速やかにアップロード</strong>してください（古いデータで上書きされる危険性があります）
+            </Typography>
+          </Alert>
+
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell width="80px">行番号</TableCell>
+                  <TableCell width="120px">フィールド</TableCell>
+                  <TableCell>エラー内容</TableCell>
+                  <TableCell width="150px">入力値</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {selectedLogErrors.map((error, index) => (
+                  <TableRow key={index} hover>
+                    <TableCell>
+                      <Chip label={error.row} size="small" />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="medium">
+                        {error.field || '-'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="error">
+                        {error.error}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontFamily: 'monospace',
+                          bgcolor: 'action.hover',
+                          px: 1,
+                          py: 0.5,
+                          borderRadius: 1,
+                          display: 'inline-block',
+                          maxWidth: '100%',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}
+                      >
+                        {error.value !== undefined && error.value !== null
+                          ? String(error.value) || '(空)'
+                          : '-'}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              💡 <strong>使い方</strong>: 「エラー行をダウンロード」でエラー行のみのCSVを取得 → Excelで修正 → 再アップロード
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              ※ ダウンロードしたCSVは元のアップロードファイルと同じ形式です
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setErrorDialogOpen(false)}>
+            閉じる
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 列選択ダイアログ */}
+      <Dialog
+        open={columnDialogOpen}
+        onClose={() => setColumnDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>出力列の選択</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            エクスポートする列を選択してください（複数選択可）
+          </Typography>
+          <List>
+            {availableColumns.map((column) => (
+              <ListItem
+                key={column.key}
+                button
+                onClick={() => handleColumnToggle(column.key)}
+              >
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={selectedColumns.includes(column.key)}
+                      onChange={() => handleColumnToggle(column.key)}
+                    />
+                  }
+                  label={column.label}
+                />
+              </ListItem>
+            ))}
+          </List>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelectedColumns([])}>
+            すべて解除
+          </Button>
+          <Button onClick={() => setSelectedColumns(availableColumns.map(c => c.key))}>
+            すべて選択
+          </Button>
+          <Button onClick={() => setColumnDialogOpen(false)} variant="contained">
+            完了
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+};
+
+export default AdminPage;

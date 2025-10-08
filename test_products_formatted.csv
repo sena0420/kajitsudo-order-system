@@ -1,0 +1,4 @@
+customerId,customerName,workCode,productName,specification,origin,quantity,boxPrice,leadTime
+1,サンプル顧客,1,トマト,1箱,北海道,10,1200,3
+1,サンプル顧客,22,きゅうり,1袋,群馬県,20,800,2
+12,テスト商店,333,レタス,1ケース,長野県,15,900,2

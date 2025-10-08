@@ -27,11 +27,13 @@ import {
 } from '@mui/material';
 import { Add, Remove, ShoppingCart } from '@mui/icons-material';
 import { useProducts } from '../hooks/useProducts';
+import { useOrders } from '../hooks/useOrders';
 import { orderService } from '../firebase/services';
 import { sendOrderNotification, sendUrgentNotification } from '../utils/notifications';
 
 const OrderPage = ({ user }) => {
   const { products, loading, error, incrementOrderCount } = useProducts(user.customerId);
+  const { addOrder } = useOrders(user.customerId);
   const [cart, setCart] = useState({});
   const [weeklyCart, setWeeklyCart] = useState({}); // 週間発注用カート
   const [deliveryDates, setDeliveryDates] = useState({}); // 商品ごとの配送日設定
@@ -223,7 +225,10 @@ const OrderPage = ({ user }) => {
 
       // 実際のFirestore実装では以下を使用
       // const orderId = await orderService.createOrder(orderData);
-      
+
+      // 発注履歴に追加（ステータス: ordered）
+      addOrder(orderData);
+
       // 商品の発注回数を更新（通常発注 + 週間発注）
       const updatedProducts = new Set([...Object.keys(cart), ...Object.keys(weeklyCart)]);
       updatedProducts.forEach(productId => {
@@ -233,10 +238,10 @@ const OrderPage = ({ user }) => {
       // 営業担当者へ通知送信
       try {
         await sendOrderNotification(orderData);
-        
+
         // 緊急通知の送信（高額・大量発注）
         const isUrgent = await sendUrgentNotification(orderData);
-        
+
         if (isUrgent) {
           console.log('緊急通知も送信されました');
         }
@@ -249,7 +254,7 @@ const OrderPage = ({ user }) => {
       setWeeklyCart({});
       setDeliveryDates({});
       setOrderConfirm(false);
-      
+
       console.log('発注確定:', orderData);
     } catch (err) {
       console.error('発注エラー:', err);
