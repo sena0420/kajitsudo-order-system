@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { productService } from '../firebase/services';
 
-export const useProducts = (customerId) => {
+export const useProducts = (customerId, deliveryLocationId = null) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -13,15 +13,50 @@ export const useProducts = (customerId) => {
     try {
       setLoading(true);
       setError('');
-      
-      // 実際のFirestore実装では以下を使用
-      // const productsData = await productService.getCustomerProducts(customerId);
-      
-      // 現在は仮データを使用
-      const sampleProducts = [
+
+      // Firebaseが利用可能かチェック
+      const { auth } = require('../firebase/config');
+      const isFirebaseAvailable = auth !== null;
+
+      if (isFirebaseAvailable) {
+        console.log('🔍 商品取得開始:', { customerId, deliveryLocationId });
+
+        // Firestoreから商品データを取得
+        const { collection, query, where, getDocs, orderBy } = require('firebase/firestore');
+        const { db } = require('../firebase/config');
+
+        const productsRef = collection(db, 'products');
+
+        // 納品先でフィルタリング（指定されている場合）
+        const queryConstraints = [
+          where('customerId', '==', customerId),
+          where('isActive', '==', true)
+        ];
+
+        if (deliveryLocationId) {
+          queryConstraints.push(where('deliveryLocationId', '==', deliveryLocationId));
+        }
+
+        queryConstraints.push(orderBy('orderCount', 'desc'));
+
+        const q = query(productsRef, ...queryConstraints);
+
+        console.log('🔍 Firestoreクエリ実行中...');
+        const querySnapshot = await getDocs(q);
+        const productsData = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        console.log('✅ 商品データ取得成功:', productsData.length + '件');
+        setProducts(productsData);
+      } else {
+        // デモモード：仮データを使用
+        const sampleProducts = [
         {
           id: 'P001',
           customerId: customerId,
+          deliveryLocationId: 'LOC0001',
           workCode: 'A123',
           name: 'りんご',
           specification: '5kg箱',
@@ -35,6 +70,7 @@ export const useProducts = (customerId) => {
         {
           id: 'P002',
           customerId: customerId,
+          deliveryLocationId: 'LOC0001',
           workCode: 'B456',
           name: 'みかん',
           specification: '10kg箱',
@@ -48,6 +84,7 @@ export const useProducts = (customerId) => {
         {
           id: 'P003',
           customerId: customerId,
+          deliveryLocationId: 'LOC0002',
           workCode: 'C789',
           name: 'バナナ',
           specification: '13kg箱',
@@ -61,6 +98,7 @@ export const useProducts = (customerId) => {
         {
           id: 'P004',
           customerId: customerId,
+          deliveryLocationId: 'LOC0001',
           workCode: 'D012',
           name: 'キャベツ',
           specification: '1玉',
@@ -74,6 +112,7 @@ export const useProducts = (customerId) => {
         {
           id: 'P005',
           customerId: customerId,
+          deliveryLocationId: 'LOC0002',
           workCode: 'E345',
           name: 'トマト',
           specification: '4kg箱',
@@ -84,14 +123,22 @@ export const useProducts = (customerId) => {
           isActive: true,
           weeklyStartDay: 0 // 日曜日開始
         }
-      ];
+        ];
 
-      // 発注回数の多い順にソート
-      const sortedProducts = sampleProducts
-        .filter(product => product.isActive)
-        .sort((a, b) => b.orderCount - a.orderCount);
-      
-      setProducts(sortedProducts);
+        // 発注回数の多い順にソート
+        let filteredProducts = sampleProducts.filter(product => product.isActive);
+
+        // 納品先でフィルタリング（指定されている場合）
+        if (deliveryLocationId) {
+          filteredProducts = filteredProducts.filter(
+            product => product.deliveryLocationId === deliveryLocationId
+          );
+        }
+
+        const sortedProducts = filteredProducts.sort((a, b) => b.orderCount - a.orderCount);
+
+        setProducts(sortedProducts);
+      }
     } catch (err) {
       console.error('商品取得エラー:', err);
       setError('商品の取得に失敗しました');
@@ -103,13 +150,25 @@ export const useProducts = (customerId) => {
   // 商品の発注回数を更新
   const incrementOrderCount = async (productId) => {
     try {
-      // 実際のFirestore実装では以下を使用
-      // await productService.incrementOrderCount(productId);
-      
+      // Firebaseが利用可能かチェック
+      const { auth } = require('../firebase/config');
+      const isFirebaseAvailable = auth !== null;
+
+      if (isFirebaseAvailable) {
+        // Firestoreの商品の発注回数を更新
+        const { doc, updateDoc, increment } = require('firebase/firestore');
+        const { db } = require('../firebase/config');
+
+        const productRef = doc(db, 'products', productId);
+        await updateDoc(productRef, {
+          orderCount: increment(1)
+        });
+      }
+
       // UIの即座な更新（楽観的更新）
-      setProducts(prev => 
-        prev.map(product => 
-          product.id === productId 
+      setProducts(prev =>
+        prev.map(product =>
+          product.id === productId
             ? { ...product, orderCount: product.orderCount + 1 }
             : product
         ).sort((a, b) => b.orderCount - a.orderCount)
@@ -121,10 +180,11 @@ export const useProducts = (customerId) => {
     }
   };
 
-  // 顧客IDが変更されたら商品を再取得
+  // 顧客IDまたは納品先IDが変更されたら商品を再取得
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchProducts();
-  }, [customerId]);
+  }, [customerId, deliveryLocationId]);
 
   return {
     products,

@@ -11,7 +11,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 
 const LoginPage = () => {
-  const [customerId, setCustomerId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const { login, loading, error, setError } = useAuth();
 
@@ -20,7 +20,7 @@ const LoginPage = () => {
     setError('');
 
     try {
-      await login(customerId, password);
+      await login(email, password);
     } catch (err) {
       // エラーは AuthContext で管理
       console.error('ログインエラー:', err);
@@ -56,13 +56,14 @@ const LoginPage = () => {
               margin="normal"
               required
               fullWidth
-              id="customerId"
-              label="顧客ID"
-              name="customerId"
-              autoComplete="username"
+              id="email"
+              label="メールアドレス"
+              name="email"
+              type="email"
+              autoComplete="email"
               autoFocus
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
             <TextField
               margin="normal"

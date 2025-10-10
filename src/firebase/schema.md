@@ -16,17 +16,37 @@
 }
 ```
 
+### deliveryLocations (納品先マスタ)
+```
+{
+  id: "LOC0001", // Document ID（4桁）
+  customerId: "CUST001", // 得意先ID
+  name: "本店", // 納品先名
+  address: "東京都渋谷区〇〇1-2-3", // 住所（オプション）
+  zipCode: "150-0001", // 郵便番号（オプション）
+  phone: "03-1234-5678", // 電話番号（オプション）
+  contactPerson: "山田花子", // 担当者名（オプション）
+  notes: "", // 備考（オプション）
+  displayOrder: 1, // 表示順序（オプション）
+  isActive: true,
+  createdAt: Timestamp,
+  updatedAt: Timestamp
+}
+```
+
 ### products (商品マスタ)
 ```
 {
   id: "auto-generated", // Document ID
   customerId: "CUST001", // 顧客ID
+  deliveryLocationId: "LOC0001", // 納品先ID（追加、4桁）
   workCode: "A123", // 作業コード
   name: "りんご",
   specification: "5kg箱",
   origin: "青森県",
   unitPrice: 2500,
   orderCount: 15, // 発注回数（よく発注する商品の判定用）
+  minDeliveryDays: 2, // 最短納期日数（商品ごとに設定可能）
   lastOrderDate: Timestamp,
   isActive: true,
   createdAt: Timestamp,
@@ -40,6 +60,8 @@
   id: "auto-generated", // Document ID
   customerId: "CUST001",
   customerName: "〇〇スーパー",
+  deliveryLocationId: "LOC0001", // 納品先ID（追加、4桁）
+  deliveryLocationName: "本店", // 納品先名（スナップショット、追加）
   salesStaffId: "STAFF001",
   orderDate: "2024-01-15",
   deliveryDate: "2024-01-22",
@@ -104,12 +126,19 @@
 
 ## インデックス設計
 
-### products
-- customerId, orderCount (desc)
+### deliveryLocations
 - customerId, isActive
+- customerId, displayOrder
 
-### orders  
+### products
+- customerId, deliveryLocationId, orderCount (desc)
+- customerId, deliveryLocationId, isActive
+- deliveryLocationId, isActive, orderCount (desc)
+
+### orders
 - customerId, createdAt (desc)
+- customerId, deliveryLocationId, createdAt (desc)
+- deliveryLocationId, createdAt (desc)
 - salesStaffId, createdAt (desc)
 - status, createdAt (desc)
 

@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ヘルパー関数
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      // 一時的にメールアドレスベースで管理者判定（Custom Claims設定前）
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.token.email == 'admin@example.com' ||
+        request.auth.token.email == 'sakura@example.com'
+      );
+    }
+
+    function getCustomerId() {
+      return request.auth.token.customerId;
+    }
+
+    function isOwnCustomer(customerId) {
+      return isAuthenticated() && getCustomerId() == customerId;
+    }
+
+    // 顧客マスタ
+    match /customers/{customerId} {
+      // 開発中: 認証済みユーザーは全て読み取り可能
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 納品先マスタ
+    match /deliveryLocations/{locationId} {
+      // 認証済みユーザーは全て読み取り可能（アプリ側でフィルタリング）
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 営業担当者マスタ
+    match /salesStaff/{staffId} {
+      // 管理者のみアクセス可能
+      allow read, write: if isAdmin();
+    }
+
+    // 商品マスタ
+    match /products/{productId} {
+      // 一時的に認証ユーザーは全て読み取り可能（アプリ側でフィルタリング）
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+      // 発注回数の更新は認証ユーザーも可能
+      allow update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // 発注データ
+    match /orders/{orderId} {
+      // 一時的に認証ユーザーは全て読み取り可能（アプリ側でフィルタリング）
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      // 更新は認証ユーザーも可能
+      allow update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // 通知データ
+    match /notifications/{notificationId} {
+      // 管理者は全アクセス可能
+      allow read, write: if isAdmin();
+      // Cloud Functions のみが作成可能（通常はサーバー側で処理）
+      allow create: if isAdmin();
+    }
+  }
+}

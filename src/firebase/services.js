@@ -1,4 +1,17 @@
 import { db, auth } from './config';
+import {
+  doc,
+  getDoc,
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  limit,
+  serverTimestamp
+} from 'firebase/firestore';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 
 // Firebase が利用可能かチェック
 const isFirebaseAvailable = db !== null;
@@ -47,15 +60,6 @@ export const productService = {
     }
 
     try {
-      const {
-        collection,
-        doc,
-        getDocs,
-        query,
-        where,
-        orderBy
-      } = await import('firebase/firestore');
-
       const q = query(
         collection(db, 'products'),
         where('customerId', '==', customerId),
@@ -81,12 +85,7 @@ export const productService = {
     }
 
     try {
-      const {
-        doc,
-        updateDoc,
-        increment,
-        serverTimestamp
-      } = await import('firebase/firestore');
+      const { updateDoc, increment } = await import('firebase/firestore');
 
       const productRef = doc(db, 'products', productId);
       await updateDoc(productRef, {
@@ -179,12 +178,6 @@ export const notificationService = {
     }
 
     try {
-      const {
-        addDoc,
-        collection,
-        serverTimestamp
-      } = await import('firebase/firestore');
-
       // Cloud Functionsで実装予定
       // メール通知やLINE通知など
       await addDoc(collection(db, 'notifications'), {

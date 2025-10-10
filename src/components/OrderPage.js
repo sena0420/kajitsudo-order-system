@@ -32,8 +32,8 @@ import { orderService } from '../firebase/services';
 import { sendOrderNotification, sendUrgentNotification } from '../utils/notifications';
 
 const OrderPage = ({ user }) => {
-  const { products, loading, error, incrementOrderCount } = useProducts(user.customerId);
-  const { addOrder } = useOrders(user.customerId);
+  const { products, loading, error, incrementOrderCount } = useProducts(user.customerId, user.deliveryLocationId);
+  const { addOrder } = useOrders(user.customerId, user.deliveryLocationId);
   const [cart, setCart] = useState({});
   const [weeklyCart, setWeeklyCart] = useState({}); // 週間発注用カート
   const [deliveryDates, setDeliveryDates] = useState({}); // 商品ごとの配送日設定
@@ -210,24 +210,71 @@ const OrderPage = ({ user }) => {
       });
 
       const allItems = [...normalItems, ...weeklyItems];
-      
-      const orderData = {
-        customerId: user.customerId,
-        customerName: user.customerName,
-        salesStaffId: user.salesStaffId,
-        orderDate: new Date().toISOString().split('T')[0],
-        totalAmount: allItems.reduce((sum, item) => sum + item.subtotal, 0),
-        items: allItems,
-        notes: '',
-        hasNormalItems: normalItems.length > 0,
-        hasWeeklyItems: weeklyItems.length > 0
-      };
 
-      // 実際のFirestore実装では以下を使用
-      // const orderId = await orderService.createOrder(orderData);
+      // 納期ごとに商品をグループ化
+      const itemsByDeliveryDate = allItems.reduce((groups, item) => {
+        const date = item.deliveryDate;
+        if (!groups[date]) {
+          groups[date] = [];
+        }
+        groups[date].push(item);
+        return groups;
+      }, {});
 
-      // 発注履歴に追加（ステータス: ordered）
-      addOrder(orderData);
+      // Firebaseが利用可能かチェック
+      const { auth } = require('../firebase/config');
+      const isFirebaseAvailable = auth !== null;
+
+      // 納期ごとに別々の注文を作成
+      const orderDate = new Date().toISOString().split('T')[0];
+
+      for (const [deliveryDate, items] of Object.entries(itemsByDeliveryDate)) {
+        const orderData = {
+          customerId: user.customerId,
+          customerName: user.customerName,
+          deliveryLocationId: user.deliveryLocationId,
+          deliveryLocationName: user.deliveryLocationName,
+          salesStaffId: user.salesStaffId,
+          orderDate: orderDate,
+          deliveryDate: deliveryDate,
+          totalAmount: items.reduce((sum, item) => sum + item.subtotal, 0),
+          items: items,
+          notes: '',
+          hasNormalItems: items.some(item => item.orderType === 'normal'),
+          hasWeeklyItems: items.some(item => item.orderType === 'weekly')
+        };
+
+        if (isFirebaseAvailable) {
+          // Firestoreに発注データを保存
+          const { collection, addDoc, serverTimestamp } = require('firebase/firestore');
+          const { db } = require('../firebase/config');
+
+          const ordersRef = collection(db, 'orders');
+          await addDoc(ordersRef, {
+            ...orderData,
+            status: 'pending', // 処理待ち
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        } else {
+          // デモモード: localStorageに保存
+          addOrder(orderData);
+        }
+
+        // 営業担当者へ通知送信（各注文ごと）
+        try {
+          await sendOrderNotification(orderData);
+
+          // 緊急通知の送信（高額・大量発注）
+          const isUrgent = await sendUrgentNotification(orderData);
+
+          if (isUrgent) {
+            console.log('緊急通知も送信されました');
+          }
+        } catch (notificationError) {
+          console.error('通知送信エラー:', notificationError);
+        }
+      }
 
       // 商品の発注回数を更新（通常発注 + 週間発注）
       const updatedProducts = new Set([...Object.keys(cart), ...Object.keys(weeklyCart)]);
@@ -235,27 +282,14 @@ const OrderPage = ({ user }) => {
         incrementOrderCount(productId);
       });
 
-      // 営業担当者へ通知送信
-      try {
-        await sendOrderNotification(orderData);
-
-        // 緊急通知の送信（高額・大量発注）
-        const isUrgent = await sendUrgentNotification(orderData);
-
-        if (isUrgent) {
-          console.log('緊急通知も送信されました');
-        }
-      } catch (notificationError) {
-        console.warn('通知送信に失敗しましたが、発注は正常に処理されました:', notificationError);
-      }
-
-      setSuccess('発注が完了しました！営業担当者に通知されました。');
+      const orderCount = Object.keys(itemsByDeliveryDate).length;
+      setSuccess(`発注が完了しました！${orderCount}件の注文が作成され、営業担当者に通知されました。`);
       setCart({});
       setWeeklyCart({});
       setDeliveryDates({});
       setOrderConfirm(false);
 
-      console.log('発注確定:', orderData);
+      console.log('発注確定:', `${orderCount}件の注文を作成しました`);
     } catch (err) {
       console.error('発注エラー:', err);
       setSuccess('');

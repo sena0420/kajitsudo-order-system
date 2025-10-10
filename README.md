@@ -22,14 +22,21 @@
 - セキュアな認証システム
 - デモモード搭載（Firebase設定不要で動作確認可能）
 
+### 📍 複数納品先対応（NEW！）
+- 1つの得意先で複数の納品先を管理
+- ログイン後に納品先を選択
+- 納品先ごとに商品・発注をフィルタリング
+- 発注時に納品先情報を自動記録
+
 ### 📊 発注履歴（NEW！強化版）
 - 過去の発注履歴を簡単確認
 - 詳細な商品情報表示
 - **発注ステータス管理**（発注済み、処理中、配送中、配送完了）
 - **発注時の自動履歴追加** - 発注ボタンを押すと即座に履歴に反映
 - **納期による自動ステータス更新** - 納期が来ると自動的に「配送完了」に
+- **ステータスフィルター機能**（全て/発注済み/処理中/配送中/配送完了）
 - アコーディオン形式で見やすい表示
-- localStorageによるデータ永続化
+- Firestoreによるデータ永続化・リアルタイム同期
 
 ### 📧 通知機能
 - 営業担当者への自動通知
@@ -39,7 +46,9 @@
 
 ### 🔧 管理者機能（NEW！）
 
-#### マスタデータ管理
+管理者画面は**マスタ管理**と**受注管理**の2つのタブに分かれています。
+
+#### マスタデータ管理（マスタ管理タブ）
 - **一括更新タブ**
   - CSV形式で商品・顧客データを一括アップロード
   - BOM付きUTF-8対応（Excelで文字化けなし）
@@ -62,6 +71,7 @@
   - ページネーション（10件/ページ）
   - 処理日時の明示と警告メッセージ表示
 
+#### 受注管理（受注管理タブ）
 - **発注データエクスポートタブ（NEW！）**
   - **販売管理システム連携機能**
   - CSV/Excel形式でのエクスポート（ラジオボタンで切り替え）
@@ -70,6 +80,11 @@
   - デフォルト列: 作業コード、配送日、数量、直送コード
   - **エクスポート時に自動でステータス更新**（発注済み → 処理中）
   - リアルタイムでエクスポート対象件数を表示
+  - **PDF帳票出力機能（NEW！）**
+    - 見やすい日本語帳票レイアウト
+    - 得意先情報・発注明細・合計金額を含む
+    - モバイルでも見やすいフォントサイズ
+    - 印刷・共有に最適
 
 #### CSV機能の特徴
 - **BOM付きUTF-8**でダウンロード → Excelで文字化けなし
@@ -84,11 +99,14 @@
 - **Material-UI 5** - UIコンポーネント
 - **React Router** - ルーティング
 - **xlsx** - Excel出力ライブラリ
+- **jsPDF** - PDF帳票出力（NEW！）
 
 ### バックエンド
-- **Firebase Authentication** - 認証
-- **Cloud Firestore** - データベース
+- **Firebase Authentication** - メール/パスワード認証（本番環境で稼働中）
+- **Cloud Firestore** - リアルタイムデータベース（本番環境で稼働中）
 - **Cloud Functions** - サーバーサイド処理
+- **Firestore Security Rules** - データアクセス制御
+- **Composite Indexes** - 高速クエリ最適化
 
 ### 通知
 - **Nodemailer** - メール送信
@@ -102,6 +120,7 @@
 ├── src/
 │   ├── components/              # Reactコンポーネント
 │   │   ├── LoginPage.js         # ログイン画面
+│   │   ├── DeliveryLocationSelector.js  # 納品先選択画面（NEW！）
 │   │   ├── OrderPage.js         # 発注画面（バイヤー）
 │   │   ├── OrderHistory.js      # 発注履歴画面
 │   │   └── AdminPage.js         # 管理者画面（NEW！）
@@ -124,6 +143,9 @@
 │   ├── index.js                 # 通知処理
 │   └── package.json             # Dependencies
 ├── firebase.json                # Firebase設定
+├── firestore.rules              # Firestoreセキュリティルール（NEW！）
+├── firestore.indexes.json       # Firestore複合インデックス定義（NEW！）
+├── .env                         # 環境変数（本番用、gitignore対象）
 ├── .env.example                 # 環境変数テンプレート
 ├── package.json                 # プロジェクト設定
 ├── TESTING.md                   # テスト手順書
@@ -141,12 +163,56 @@ npm install
 
 ### 2. Firebase設定
 
+#### プロジェクト作成
 1. [Firebase Console](https://console.firebase.google.com/) でプロジェクト作成
-2. Authentication, Firestore, Functionsを有効化
-3. `.env`ファイルを作成し、Firebase設定を追加
+2. Sparkプラン（無料）で開始可能
+
+#### Authentication設定
+1. Authentication > Sign-in method を開く
+2. 「メール/パスワード」プロバイダを有効化
+3. （オプション）管理者ユーザーを作成
+
+#### Firestore Database設定
+1. Firestore Database を作成
+2. **Standard Edition** を選択
+3. ロケーションは **asia-northeast1（東京）** を推奨
+4. セキュリティルールをデプロイ（下記参照）
+5. 複合インデックスを作成（下記参照）
+
+#### 環境変数設定
+1. Firebase Console > プロジェクト設定 から設定値を取得
+2. `.env`ファイルを作成し、Firebase設定を追加
 
 ```bash
 cp .env.example .env
+# .envファイルを編集してFirebase設定を追加
+```
+
+```env
+REACT_APP_FIREBASE_API_KEY=your-api-key
+REACT_APP_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+REACT_APP_FIREBASE_PROJECT_ID=your-project-id
+REACT_APP_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
+REACT_APP_FIREBASE_MESSAGING_SENDER_ID=123456789
+REACT_APP_FIREBASE_APP_ID=1:123456789:web:abcdef
+REACT_APP_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
+```
+
+#### セキュリティルール設定
+```bash
+firebase deploy --only firestore:rules
+```
+
+または Firebase Console から手動で設定（`firestore.rules`の内容をコピー）
+
+#### 複合インデックス作成
+以下のクエリ実行時にエラーメッセージが表示されるので、リンクをクリックして自動作成：
+- **products**: `customerId`, `isActive`, `orderCount`
+- **orders**: `customerId`, `createdAt`
+
+または`firestore.indexes.json`をデプロイ：
+```bash
+firebase deploy --only firestore:indexes
 ```
 
 ### 3. Firestore初期設定
@@ -154,11 +220,22 @@ cp .env.example .env
 データベース構造は `src/firebase/schema.md` を参照してください。
 
 #### 必要なコレクション：
-- `customers` - 顧客マスタ
-- `products` - 商品マスタ
-- `orders` - 発注データ
+- `customers` - 顧客マスタ（emailフィールドが必須）
+- `deliveryLocations` - 納品先マスタ（NEW！customerId, isActiveでインデックス必要）
+- `products` - 商品マスタ（customerId, deliveryLocationId, isActive, orderCountでインデックス必要）
+- `orders` - 発注データ（customerId, deliveryLocationId, createdAtでインデックス必要）
 - `salesStaff` - 営業担当者マスタ
 - `notifications` - 通知データ
+
+#### 初期データ例（customers）
+```json
+{
+  "name": "さくらスーパー",
+  "email": "sakura@example.com",
+  "salesStaffId": "SS001",
+  "isActive": true
+}
+```
 
 ### 4. Cloud Functions設定
 
@@ -193,8 +270,10 @@ firebase deploy
 ### バイヤー向け機能
 
 #### 顧客ログイン
-1. 顧客IDとパスワードでログイン
-2. 発注可能商品一覧が表示（発注回数順）
+1. メールアドレスとパスワードでログイン（Firebase認証）
+2. 納品先選択画面で納品先を選択（複数納品先がある場合）
+3. 選択した納品先の発注可能商品一覧が表示（発注回数順）
+4. デモモード時は任意のメールアドレスで自動ログイン可能
 
 #### 商品発注
 1. 商品カードの +/- ボタンで数量調整
@@ -243,34 +322,54 @@ firebase deploy
 4. 「保存」ボタンで登録
 5. 重複チェックが自動実行され、重複時は確認ダイアログ表示
 
+### 受注管理機能
+
 #### 発注データのエクスポート（NEW！）
 1. 「発注データエクスポート」タブを選択
 2. エクスポート条件を設定
    - 期間指定（開始日〜終了日）
    - 得意先指定（全て または 特定の得意先）
    - ステータス指定（全て/処理中/配送中/配送完了）
-3. 「列を選択」ボタンで出力する列を選択
+3. **CSV/Excel エクスポート**（販売管理システム連携用）
+   - 「列を選択」ボタンで出力する列を選択
    - デフォルト: 作業コード、配送日、数量、直送コード
    - 利用可能な列: 発注日、得意先コード、得意先名、作業コード、商品名、規格、産地、数量、単価、配送日、ステータス、直送コード
-4. ラジオボタンでCSV形式またはExcel形式を選択
-5. 「ダウンロード」ボタンでエクスポート
-6. エクスポートされた「発注済み」の発注は自動的に「処理中」に変更
-7. 販売管理システムにインポート
+   - ラジオボタンでCSV形式またはExcel形式を選択
+   - 「ダウンロード」ボタンでエクスポート
+   - エクスポートされた「発注済み」の発注は自動的に「処理中」に変更
+   - 販売管理システムにインポート
+4. **PDF帳票出力**（帳票・印刷用）
+   - 「PDF出力」ボタンをクリック
+   - 得意先情報、発注明細、合計金額を含む日本語帳票を生成
+   - 見やすいレイアウトで印刷・共有に最適
+   - モバイル端末でも確認可能
 
-## デモモード
+## 🚀 Firebase本番環境連携（NEW！）
 
-Firebase設定なしでアプリケーションの動作を確認できます。
+アプリケーションはFirebase本番環境と完全連携しており、以下の機能が動作しています：
 
-### デモモードの特徴
-- 環境変数`REACT_APP_FIREBASE_API_KEY`が未設定の場合に自動的に有効化
-- モックデータで全機能を体験可能
-- 認証、商品管理、発注、履歴確認がすべて動作
-- コンソールに「🔧 デモモードで動作中」と表示
+### 認証機能
+- **Firebase Authentication** によるメール/パスワード認証
+- セキュアなユーザー管理
+- 顧客情報とFirebaseユーザーの自動連携（emailベース）
+
+### データ管理
+- **Cloud Firestore** でのリアルタイムデータ同期
+- 商品マスタ、発注データ、顧客データの永続化
+- 複合インデックスによる高速クエリ
+- セキュリティルールによるアクセス制御
+
+### デモモードと本番モードの自動切り替え
+- **デモモード**: 環境変数`REACT_APP_FIREBASE_API_KEY`が未設定の場合に自動的に有効化
+- **本番モード**: `.env`ファイルにFirebase設定を追加すると自動的に切り替わる
+- どちらのモードでも全機能が動作
+- コンソールに「🔧 デモモードで動作中」と表示（デモモード時）
 
 ### デモモード → 本番環境への移行
 1. `.env`ファイルにFirebase設定を追加
-2. アプリを再起動
-3. 自動的に本番モードに切り替わる
+2. Firestoreのセキュリティルールと複合インデックスを設定
+3. アプリを再起動
+4. 自動的に本番モードに切り替わる
 
 ## カスタマイズ
 
@@ -296,12 +395,26 @@ Firebase設定なしでアプリケーションの動作を確認できます。
 
 ## セキュリティ
 
-- Firebase Authentication による安全な認証
-- Firestore Security Rules による データアクセス制御
-- 顧客別データ分離（マルチテナント対応）
-- HTTPS通信
+### 認証・認可
+- **Firebase Authentication** による安全な認証（本番環境で稼働中）
+- メール/パスワード方式の安全な認証フロー
 - パスワード自動生成機能（7桁の安全なパスワード）
 - 管理者権限の分離
+
+### データアクセス制御
+- **Firestore Security Rules** によるデータアクセス制御
+- Email-based認証によるアクセス権限管理
+- 顧客別データ分離（マルチテナント対応）
+- 読み取り・書き込み・更新・削除の細かい権限設定
+
+### 通信・インフラ
+- HTTPS通信による暗号化
+- Firebase Hostingによる安全なデプロイ
+- 環境変数による機密情報の保護（`.env`はgitignore対象）
+
+### 将来の拡張計画
+- Custom Claimsによる高度な権限管理（実装予定）
+- カスタムクレームによる顧客ID・管理者フラグの管理
 
 ## トラブルシューティング
 
@@ -324,6 +437,50 @@ npm start -- --port 3001
 - `.env`ファイルが未設定の場合、自動的にデモモードで動作します
 - コンソールに「🔧 デモモードで動作中」と表示されていれば正常です
 
+### Firestore複合インデックスエラー
+```
+FirebaseError: The query requires an index. You can create it here: https://console.firebase.google.com/...
+```
+**解決方法**:
+1. エラーメッセージ内のリンクをクリック
+2. Firebase Consoleでインデックスを自動作成
+3. ステータスが「作成中」→「有効」になるまで待つ（数分）
+4. ページをリロード
+
+**必要なインデックス**:
+- `deliveryLocations`: customerId (昇順), isActive (昇順)
+- `products` (納品先フィルターあり): customerId (昇順), deliveryLocationId (昇順), isActive (昇順), orderCount (降順)
+- `products` (納品先フィルターなし): customerId (昇順), isActive (昇順), orderCount (降順) ← **既存インデックス（削除しない）**
+- `orders` (納品先フィルターあり): customerId (昇順), deliveryLocationId (昇順), createdAt (降順)
+- `orders` (納品先フィルターなし): customerId (昇順), createdAt (降順) ← **既存インデックス（削除しない）**
+
+**📝 複数納品先対応に伴うインデックス設計の注意点**:
+
+納品先機能の追加により、productsとordersコレクションの複合インデックスが増えましたが、**以前のインデックスも削除せずに残してください**。
+
+**理由**:
+- Firestoreの複合インデックスは**クエリ条件に完全一致**する必要がある
+- 納品先フィルターの有無で異なるインデックスが使用される：
+  - **納品先フィルターあり**: `customerId + deliveryLocationId + ...` を使用（一般ユーザー）
+  - **納品先フィルターなし**: `customerId + ...` を使用（管理者の全件表示など）
+- 将来の機能拡張（納品先横断検索、レポート機能など）にも対応可能
+
+### Firestore Security Rules エラー
+```
+Missing or insufficient permissions
+```
+**解決方法**:
+1. `firestore.rules`ファイルの内容をFirebase Consoleにコピー
+2. または `firebase deploy --only firestore:rules` を実行
+3. ルールが正しくデプロイされたことを確認
+
+### 環境変数が読み込まれない
+**解決方法**:
+1. `.env`ファイルがプロジェクトルートにあることを確認
+2. 開発サーバーを完全に停止（Ctrl+Cを2回押す）
+3. `npm start` または `npx react-scripts start` で再起動
+4. 環境変数は起動時のみ読み込まれます
+
 ## 開発履歴
 
 詳細な開発履歴は `CONVERSATION_LOG.md` を参照してください。
@@ -331,6 +488,8 @@ npm start -- --port 3001
 - **2025年9月2日**: 基本機能実装（ログイン、発注、履歴、通知）
 - **2025年10月6日**: 管理者機能実装（マスタ管理、CSV一括更新、エラー修正フロー、BOM対応）
 - **2025年10月7日**: 発注データエクスポート機能、発注履歴の自動ステータス更新機能を実装
+- **2025年10月8日**: Firebase本番環境接続、PDF帳票出力機能、管理者画面分割（マスタ管理/受注管理）、ステータスフィルター強化
+- **2025年10月9日**: 複数納品先対応機能を実装（納品先選択画面、納品先別フィルタリング、Security Rules更新）
 
 ## ライセンス
 

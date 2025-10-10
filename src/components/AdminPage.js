@@ -890,9 +890,9 @@ const AdminPage = ({ user }) => {
   const handleExportCSV = () => {
     const orders = getFilteredOrders();
 
-    // エクスポート対象の発注IDを取得
+    // エクスポート対象の発注IDを取得（処理待ち・変更処理待ちのみ）
     const exportedOrderIds = orders
-      .filter(order => order.status === 'ordered')
+      .filter(order => order.status === 'pending' || order.status === 'change_pending')
       .map(order => order.id);
 
     // 発注データを行単位に展開
@@ -904,7 +904,7 @@ const AdminPage = ({ user }) => {
           if (col === 'orderDate') row[col] = order.orderDate;
           else if (col === 'customerId') row[col] = order.customerId;
           else if (col === 'customerName') row[col] = order.customerName;
-          else if (col === 'status') row[col] = order.status === 'processing' ? '処理中' : order.status === 'shipped' ? '配送中' : order.status === 'delivered' ? '配送完了' : '発注済み';
+          else if (col === 'status') row[col] = order.status === 'confirmed' ? '確認済' : order.status === 'change_pending' ? '変更処理待ち' : '処理待ち';
           else if (col === 'directShipCode') row[col] = ''; // 直送コードは空欄
           else row[col] = item[col] || '';
         });
@@ -943,9 +943,9 @@ const AdminPage = ({ user }) => {
     link.click();
     URL.revokeObjectURL(url);
 
-    // エクスポート後、ステータスを「処理中」に更新
+    // エクスポート後、ステータスを「確認済」に更新
     if (exportedOrderIds.length > 0) {
-      updateOrdersStatusInStorage(exportedOrderIds, 'processing');
+      updateOrdersStatusInStorage(exportedOrderIds, 'confirmed');
     }
   };
 
@@ -953,9 +953,9 @@ const AdminPage = ({ user }) => {
   const handleExportExcel = () => {
     const orders = getFilteredOrders();
 
-    // エクスポート対象の発注IDを取得
+    // エクスポート対象の発注IDを取得（処理待ち・変更処理待ちのみ）
     const exportedOrderIds = orders
-      .filter(order => order.status === 'ordered')
+      .filter(order => order.status === 'pending' || order.status === 'change_pending')
       .map(order => order.id);
 
     // 発注データを行単位に展開
@@ -970,7 +970,7 @@ const AdminPage = ({ user }) => {
           if (col === 'orderDate') row[label] = order.orderDate;
           else if (col === 'customerId') row[label] = order.customerId;
           else if (col === 'customerName') row[label] = order.customerName;
-          else if (col === 'status') row[label] = order.status === 'processing' ? '処理中' : order.status === 'shipped' ? '配送中' : order.status === 'delivered' ? '配送完了' : '発注済み';
+          else if (col === 'status') row[label] = order.status === 'confirmed' ? '確認済' : order.status === 'change_pending' ? '変更処理待ち' : '処理待ち';
           else if (col === 'directShipCode') row[label] = ''; // 直送コードは空欄
           else row[label] = item[col] || '';
         });
@@ -987,9 +987,9 @@ const AdminPage = ({ user }) => {
     const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     XLSX.writeFile(workbook, `orders_export_${timestamp}.xlsx`);
 
-    // エクスポート後、ステータスを「処理中」に更新
+    // エクスポート後、ステータスを「確認済」に更新
     if (exportedOrderIds.length > 0) {
-      updateOrdersStatusInStorage(exportedOrderIds, 'processing');
+      updateOrdersStatusInStorage(exportedOrderIds, 'confirmed');
     }
   };
 
@@ -1037,7 +1037,6 @@ const AdminPage = ({ user }) => {
           <Tab label="一括更新" />
           <Tab label="手動管理" />
           <Tab label="実行履歴" />
-          <Tab label="発注データエクスポート" />
         </Tabs>
 
         {/* 一括更新タブ */}
@@ -1401,167 +1400,6 @@ const AdminPage = ({ user }) => {
                 </CardContent>
               </Card>
             )}
-          </Box>
-        )}
-
-        {/* 発注データエクスポートタブ */}
-        {currentTab === 3 && (
-          <Box sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              発注データエクスポート
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              発注データをCSVまたはExcel形式でエクスポートできます
-            </Typography>
-
-            {/* フィルター設定 */}
-            <Card sx={{ mb: 3 }}>
-              <CardContent>
-                <Typography variant="subtitle1" gutterBottom>
-                  エクスポート条件
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={3}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="開始日"
-                      type="date"
-                      value={exportFilter.startDate}
-                      onChange={(e) => setExportFilter({ ...exportFilter, startDate: e.target.value })}
-                      InputLabelProps={{ shrink: true }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="終了日"
-                      type="date"
-                      value={exportFilter.endDate}
-                      onChange={(e) => setExportFilter({ ...exportFilter, endDate: e.target.value })}
-                      InputLabelProps={{ shrink: true }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Autocomplete
-                      size="small"
-                      options={mockCustomers}
-                      getOptionLabel={(option) => `${option.customerId} - ${option.customerName}`}
-                      value={mockCustomers.find(c => c.customerId === exportFilter.customerId) || null}
-                      onChange={(event, newValue) => {
-                        setExportFilter({ ...exportFilter, customerId: newValue ? newValue.customerId : '' });
-                      }}
-                      renderInput={(params) => (
-                        <TextField {...params} label="得意先" placeholder="全て" />
-                      )}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>ステータス</InputLabel>
-                      <Select
-                        value={exportFilter.status}
-                        label="ステータス"
-                        onChange={(e) => setExportFilter({ ...exportFilter, status: e.target.value })}
-                      >
-                        <MenuItem value="all">すべて</MenuItem>
-                        <MenuItem value="processing">処理中</MenuItem>
-                        <MenuItem value="shipped">配送中</MenuItem>
-                        <MenuItem value="delivered">配送完了</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                </Grid>
-
-                {/* データプレビュー */}
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    エクスポート対象: {getFilteredOrders().reduce((total, order) => total + order.items.length, 0)} 件
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-
-            {/* 出力列設定 */}
-            <Card sx={{ mb: 3 }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="subtitle1">
-                    出力列の設定
-                  </Typography>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => setColumnDialogOpen(true)}
-                  >
-                    列を選択
-                  </Button>
-                </Box>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                  {selectedColumns.map(key => {
-                    const column = availableColumns.find(c => c.key === key);
-                    return (
-                      <Chip
-                        key={key}
-                        label={column ? column.label : key}
-                        onDelete={() => handleColumnToggle(key)}
-                        color="primary"
-                        variant="outlined"
-                      />
-                    );
-                  })}
-                </Box>
-                {selectedColumns.length === 0 && (
-                  <Alert severity="warning" sx={{ mt: 2 }}>
-                    出力する列を選択してください
-                  </Alert>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* 出力形式とエクスポート */}
-            <Card>
-              <CardContent>
-                <Typography variant="subtitle1" gutterBottom>
-                  出力形式
-                </Typography>
-                <RadioGroup
-                  value={exportFormat}
-                  onChange={(e) => setExportFormat(e.target.value)}
-                  sx={{ mb: 2 }}
-                >
-                  <FormControlLabel
-                    value="csv"
-                    control={<Radio />}
-                    label="CSV形式"
-                  />
-                  <FormControlLabel
-                    value="excel"
-                    control={<Radio />}
-                    label="Excel形式"
-                  />
-                </RadioGroup>
-
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                  <Button
-                    variant="contained"
-                    startIcon={<FileDownload />}
-                    onClick={exportFormat === 'csv' ? handleExportCSV : handleExportExcel}
-                    disabled={selectedColumns.length === 0 || getFilteredOrders().length === 0}
-                    size="large"
-                  >
-                    {exportFormat === 'csv' ? 'CSVでダウンロード' : 'Excelでダウンロード'}
-                  </Button>
-                </Box>
-
-                {getFilteredOrders().length === 0 && (
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    エクスポート対象のデータがありません
-                  </Alert>
-                )}
-              </CardContent>
-            </Card>
           </Box>
         )}
 
