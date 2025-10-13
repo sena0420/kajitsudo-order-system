@@ -33,7 +33,10 @@ export const AuthProvider = ({ children }) => {
             // IDトークンから Custom Claims を取得
             const idTokenResult = await firebaseUser.getIdTokenResult();
             // 一時的に特定のメールアドレスを管理者として扱う
-            const adminEmails = ['admin@example.com'];
+            const adminEmails = [
+              'admin@example.com',
+              'sakura@example.com'  // テスト用に追加（実際の運用時は削除）
+            ];
             const isAdmin = idTokenResult.claims.admin === true || adminEmails.includes(firebaseUser.email);
 
             // Firestoreから顧客情報を取得（emailで検索）
@@ -113,8 +116,20 @@ export const AuthProvider = ({ children }) => {
       console.log('🔧 デモモード: Firebase認証を使用せずモックデータで動作');
       // デモ用の納品先データ
       setDeliveryLocations([
-        { id: 'LOC0001', name: '本店', customerId: 'CUST001', isActive: true },
-        { id: 'LOC0002', name: '第2倉庫', customerId: 'CUST001', isActive: true }
+        {
+          id: 'LOC0001',
+          name: '本店',
+          customerId: 'CUST001',
+          isActive: true,
+          unavailableDates: ['2025-10-15', '2025-10-20', '2025-10-25'] // デモ用納品不可日
+        },
+        {
+          id: 'LOC0002',
+          name: '第2倉庫',
+          customerId: 'CUST001',
+          isActive: true,
+          unavailableDates: ['2025-10-18', '2025-10-22'] // デモ用納品不可日
+        }
       ]);
       setLoading(false);
     }
@@ -142,8 +157,20 @@ export const AuthProvider = ({ children }) => {
           let autoSelectedLocationName = null;
           if (!isAdmin) {
             const demoLocations = [
-              { id: 'LOC0001', name: '本店', customerId: customerId, isActive: true },
-              { id: 'LOC0002', name: '第2倉庫', customerId: customerId, isActive: true }
+              {
+                id: 'LOC0001',
+                name: '本店',
+                customerId: customerId,
+                isActive: true,
+                unavailableDates: ['2025-10-15', '2025-10-20', '2025-10-25']
+              },
+              {
+                id: 'LOC0002',
+                name: '第2倉庫',
+                customerId: customerId,
+                isActive: true,
+                unavailableDates: ['2025-10-18', '2025-10-22']
+              }
             ];
             setDeliveryLocations(demoLocations);
 

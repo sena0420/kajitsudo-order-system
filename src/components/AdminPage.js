@@ -49,16 +49,19 @@ import {
   PersonAdd,
   FilterList,
   Error as ErrorIcon,
-  CheckCircle
+  CheckCircle,
+  Remove
 } from '@mui/icons-material';
 import Radio from '@mui/material/Radio';
 import RadioGroup from '@mui/material/RadioGroup';
 import { generateCustomerPassword } from '../utils/passwordGenerator';
 import { formatCsvCodes, validateCustomerCode, validateWorkCode, generateNextWorkCode, formatCustomerCode, formatWorkCode } from '../utils/codeFormatter';
 import * as XLSX from 'xlsx';
+import { useAuth } from '../contexts/AuthContext';
 // Firebase Functions インポートをコンポーネント内に移動
 
 const AdminPage = ({ user }) => {
+  const { deliveryLocations } = useAuth();
   const [currentTab, setCurrentTab] = useState(0);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -116,13 +119,13 @@ const AdminPage = ({ user }) => {
   const [productForm, setProductForm] = useState({
     customerId: '',
     customerName: '',
+    deliveryLocationId: '',
     workCode: '',
     productName: '',
     specification: '',
     origin: '',
-    quantity: '',
-    boxPrice: '',
-    leadTime: ''
+    unitPrice: '',
+    minDeliveryDays: ''
   });
 
   // エクスポート用の状態
@@ -135,6 +138,11 @@ const AdminPage = ({ user }) => {
   const [exportFormat, setExportFormat] = useState('csv'); // 'csv' or 'excel'
   const [selectedColumns, setSelectedColumns] = useState(['workCode', 'deliveryDate', 'quantity', 'directShipCode']);
   const [columnDialogOpen, setColumnDialogOpen] = useState(false);
+
+  // 納品先管理用の状態
+  const [selectedDeliveryLocation, setSelectedDeliveryLocation] = useState('');
+  const [unavailableDates, setUnavailableDates] = useState([]);
+  const [newUnavailableDate, setNewUnavailableDate] = useState('');
 
   // タブ変更ハンドラ
   const handleTabChange = (event, newValue) => {
@@ -293,19 +301,19 @@ const AdminPage = ({ user }) => {
             errors: [
               {
                 row: 15,
-                field: 'boxPrice',
+                field: 'unitPrice',
                 error: '単価が数値ではありません',
                 value: 'ABC',
                 rowData: {
                   customerId: '000001',
                   customerName: 'サンプル顧客',
+                  deliveryLocationId: 'LOC0001',
                   workCode: '00015',
                   productName: 'トマト',
-                  specification: '1箱',
+                  specification: '4kg箱',
                   origin: '北海道',
-                  quantity: '10',
-                  boxPrice: 'ABC',
-                  leadTime: '3'
+                  unitPrice: 'ABC',
+                  minDeliveryDays: '3'
                 }
               },
               {
@@ -316,13 +324,13 @@ const AdminPage = ({ user }) => {
                 rowData: {
                   customerId: '000002',
                   customerName: 'テスト商店',
+                  deliveryLocationId: 'LOC0001',
                   workCode: '123',
                   productName: 'きゅうり',
-                  specification: '1袋',
+                  specification: '10本入',
                   origin: '群馬県',
-                  quantity: '20',
-                  boxPrice: '800',
-                  leadTime: '2'
+                  unitPrice: '800',
+                  minDeliveryDays: '2'
                 }
               }
             ]
@@ -358,30 +366,30 @@ const AdminPage = ({ user }) => {
                 rowData: {
                   customerId: '999999',
                   customerName: '不明な顧客',
+                  deliveryLocationId: 'LOC0001',
                   workCode: '00008',
                   productName: 'レタス',
                   specification: '1ケース',
                   origin: '長野県',
-                  quantity: '15',
-                  boxPrice: '900',
-                  leadTime: '2'
+                  unitPrice: '900',
+                  minDeliveryDays: '2'
                 }
               },
               {
                 row: 23,
-                field: 'leadTime',
+                field: 'minDeliveryDays',
                 error: 'リードタイムが範囲外です',
                 value: '365',
                 rowData: {
                   customerId: '000001',
                   customerName: 'サンプル顧客',
+                  deliveryLocationId: 'LOC0001',
                   workCode: '00023',
                   productName: 'バナナ',
                   specification: '13kg箱',
                   origin: 'フィリピン',
-                  quantity: '50',
-                  boxPrice: '1800',
-                  leadTime: '365'
+                  unitPrice: '1800',
+                  minDeliveryDays: '365'
                 }
               },
               {
@@ -392,13 +400,13 @@ const AdminPage = ({ user }) => {
                 rowData: {
                   customerId: '000003',
                   customerName: '○○商事',
+                  deliveryLocationId: 'LOC0001',
                   workCode: '00045',
                   productName: '',
                   specification: '1箱',
                   origin: '青森県',
-                  quantity: '8',
-                  boxPrice: '2500',
-                  leadTime: '3'
+                  unitPrice: '2500',
+                  minDeliveryDays: '3'
                 }
               },
               {
@@ -409,13 +417,13 @@ const AdminPage = ({ user }) => {
                 rowData: {
                   customerId: '000002',
                   customerName: 'テスト商店',
+                  deliveryLocationId: 'LOC0002',
                   workCode: '00067',
                   productName: 'みかん',
                   specification: 'very long text that exceeds maximum length allowed',
                   origin: '愛媛県',
-                  quantity: '30',
-                  boxPrice: '3200',
-                  leadTime: '2'
+                  unitPrice: '3200',
+                  minDeliveryDays: '2'
                 }
               },
               {
@@ -426,13 +434,13 @@ const AdminPage = ({ user }) => {
                 rowData: {
                   customerId: '000001',
                   customerName: 'サンプル顧客',
+                  deliveryLocationId: 'LOC0001',
                   workCode: '00089',
                   productName: 'キャベツ',
                   specification: '1玉',
                   origin: 'Unknown',
-                  quantity: '100',
-                  boxPrice: '150',
-                  leadTime: '1'
+                  unitPrice: '150',
+                  minDeliveryDays: '1'
                 }
               }
             ]
@@ -555,9 +563,9 @@ const AdminPage = ({ user }) => {
     // ヘッダー行の生成
     let csvContent = '';
     if (dataType === 'products') {
-      csvContent = 'customerId,customerName,workCode,productName,specification,origin,quantity,boxPrice,leadTime\n';
+      csvContent = 'customerId,customerName,deliveryLocationId,workCode,productName,specification,origin,unitPrice,minDeliveryDays\n';
     } else if (dataType === 'customers') {
-      csvContent = 'customerId,customerName,email,salesStaffId,password,isActive\n';
+      csvContent = 'customerId,customerName,email,salesStaffId,minDeliveryDays,password,isActive\n';
     }
 
     // エラー行のデータを追加（元のCSVと同じ形式）
@@ -565,9 +573,9 @@ const AdminPage = ({ user }) => {
       if (error.rowData) {
         const data = error.rowData;
         if (dataType === 'products') {
-          csvContent += `${escapeCSV(data.customerId)},${escapeCSV(data.customerName)},${escapeCSV(data.workCode)},${escapeCSV(data.productName)},${escapeCSV(data.specification)},${escapeCSV(data.origin)},${escapeCSV(data.quantity)},${escapeCSV(data.boxPrice)},${escapeCSV(data.leadTime)}\n`;
+          csvContent += `${escapeCSV(data.customerId)},${escapeCSV(data.customerName)},${escapeCSV(data.deliveryLocationId)},${escapeCSV(data.workCode)},${escapeCSV(data.productName)},${escapeCSV(data.specification)},${escapeCSV(data.origin)},${escapeCSV(data.unitPrice)},${escapeCSV(data.minDeliveryDays)}\n`;
         } else if (dataType === 'customers') {
-          csvContent += `${escapeCSV(data.customerId)},${escapeCSV(data.customerName)},${escapeCSV(data.email)},${escapeCSV(data.salesStaffId)},${escapeCSV(data.password)},${escapeCSV(data.isActive)}\n`;
+          csvContent += `${escapeCSV(data.customerId)},${escapeCSV(data.customerName)},${escapeCSV(data.email)},${escapeCSV(data.salesStaffId)},${escapeCSV(data.minDeliveryDays)},${escapeCSV(data.password)},${escapeCSV(data.isActive)}\n`;
         }
       }
     });
@@ -589,16 +597,17 @@ const AdminPage = ({ user }) => {
   const downloadTemplate = (type) => {
     let template = '';
     if (type === 'products') {
-      // 販売管理システムのフォーマット（得意先コード6桁、作業コード5桁）
-      template = 'customerId,customerName,workCode,productName,specification,origin,quantity,boxPrice,leadTime\n';
-      template += '000001,サンプル顧客,00001,トマト,1箱,北海道,10,1200,3\n';
-      template += '000001,サンプル顧客,00002,きゅうり,1袋,群馬県,20,800,2\n';
-      template += '000002,テスト商店,00003,レタス,1ケース,長野県,15,900,2\n';
+      // 販売管理システムのフォーマット（得意先コード6桁、作業コード5桁、納品先ID 4桁）
+      template = 'customerId,customerName,deliveryLocationId,workCode,productName,specification,origin,unitPrice,minDeliveryDays\n';
+      template += '000001,サンプル顧客,LOC0001,00001,トマト,4kg箱,北海道,1200,3\n';
+      template += '000001,サンプル顧客,LOC0001,00002,きゅうり,10本入,群馬県,800,2\n';
+      template += '000001,サンプル顧客,LOC0002,00003,みかん,10kg箱,愛媛県,3200,2\n';
+      template += '000002,テスト商店,LOC0001,00004,レタス,1ケース(10玉),長野県,900,2\n';
     } else if (type === 'customers') {
-      template = 'customerId,customerName,email,salesStaffId,password,isActive\n';
-      template += '000001,サンプル顧客,customer001@example.com,STAFF001,AUTO_GEN,true\n';
-      template += '000002,テスト商店,customer002@example.com,STAFF001,AUTO_GEN,true\n';
-      template += '000003,○○商事,customer003@example.com,STAFF002,AUTO_GEN,true\n';
+      template = 'customerId,customerName,email,salesStaffId,minDeliveryDays,password,isActive\n';
+      template += '000001,サンプル顧客,customer001@example.com,STAFF001,2,AUTO_GEN,true\n';
+      template += '000002,テスト商店,customer002@example.com,STAFF001,2,AUTO_GEN,true\n';
+      template += '000003,○○商事,customer003@example.com,STAFF002,3,AUTO_GEN,true\n';
     }
 
     // BOM（Byte Order Mark）を追加してExcelで文字化けを防ぐ
@@ -799,13 +808,13 @@ const AdminPage = ({ user }) => {
       setProductForm({
         customerId: '',
         customerName: '',
+        deliveryLocationId: '',
         workCode: '',
         productName: '',
         specification: '',
         origin: '',
-        quantity: '',
-        boxPrice: '',
-        leadTime: ''
+        unitPrice: '',
+        minDeliveryDays: ''
       });
 
       alert(`商品データを${isOverwrite ? '上書き保存' : '新規登録'}しました（デモモード）`);
@@ -1016,6 +1025,55 @@ const AdminPage = ({ user }) => {
     });
   };
 
+  // 納品先管理: 納品先選択時のハンドラー
+  const handleDeliveryLocationSelect = (locationId) => {
+    setSelectedDeliveryLocation(locationId);
+    const location = deliveryLocations.find(loc => loc.id === locationId);
+    setUnavailableDates(location?.unavailableDates || []);
+  };
+
+  // 納品先管理: 納品不可日を追加
+  const handleAddUnavailableDate = () => {
+    if (newUnavailableDate && !unavailableDates.includes(newUnavailableDate)) {
+      const updatedDates = [...unavailableDates, newUnavailableDate].sort();
+      setUnavailableDates(updatedDates);
+      setNewUnavailableDate('');
+
+      // デモモードでlocalStorageに保存
+      saveUnavailableDates(selectedDeliveryLocation, updatedDates);
+    }
+  };
+
+  // 納品先管理: 納品不可日を削除
+  const handleRemoveUnavailableDate = (dateToRemove) => {
+    const updatedDates = unavailableDates.filter(date => date !== dateToRemove);
+    setUnavailableDates(updatedDates);
+
+    // デモモードでlocalStorageに保存
+    saveUnavailableDates(selectedDeliveryLocation, updatedDates);
+  };
+
+  // 納品先管理: 納品不可日を保存（デモモード用）
+  const saveUnavailableDates = (locationId, dates) => {
+    try {
+      console.log(`納品不可日を保存: ${locationId}`, dates);
+      // デモモード: localStorageに保存
+      const storageKey = `unavailableDates_${locationId}`;
+      localStorage.setItem(storageKey, JSON.stringify(dates));
+
+      // 実際のFirebase実装では以下を使用
+      // const { doc, updateDoc } = require('firebase/firestore');
+      // const { db } = require('../firebase/config');
+      // const locationRef = doc(db, 'deliveryLocations', locationId);
+      // await updateDoc(locationRef, { unavailableDates: dates });
+
+      alert('納品不可日を保存しました（デモモード）');
+    } catch (error) {
+      console.error('納品不可日の保存エラー:', error);
+      alert('保存に失敗しました');
+    }
+  };
+
   return (
     <Box>
       <Typography variant="h4" sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
@@ -1037,6 +1095,7 @@ const AdminPage = ({ user }) => {
           <Tab label="一括更新" />
           <Tab label="手動管理" />
           <Tab label="実行履歴" />
+          <Tab label="納品先管理" />
         </Tabs>
 
         {/* 一括更新タブ */}
@@ -1339,6 +1398,16 @@ const AdminPage = ({ user }) => {
                     <Grid item xs={12} md={4}>
                       <TextField
                         fullWidth
+                        label="納品先ID"
+                        value={productForm.deliveryLocationId}
+                        onChange={(e) => handleProductFormChange('deliveryLocationId', e.target.value)}
+                        placeholder="LOC0001"
+                        required
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
                         label="規格"
                         value={productForm.specification}
                         onChange={(e) => handleProductFormChange('specification', e.target.value)}
@@ -1354,23 +1423,13 @@ const AdminPage = ({ user }) => {
                         placeholder="北海道"
                       />
                     </Grid>
-                    <Grid item xs={12} md={4}>
-                      <TextField
-                        fullWidth
-                        label="入数"
-                        type="number"
-                        value={productForm.quantity}
-                        onChange={(e) => handleProductFormChange('quantity', e.target.value)}
-                        placeholder="10"
-                      />
-                    </Grid>
                     <Grid item xs={12} md={6}>
                       <TextField
                         fullWidth
-                        label="箱単価（円）"
+                        label="単価（円）"
                         type="number"
-                        value={productForm.boxPrice}
-                        onChange={(e) => handleProductFormChange('boxPrice', e.target.value)}
+                        value={productForm.unitPrice}
+                        onChange={(e) => handleProductFormChange('unitPrice', e.target.value)}
                         placeholder="1200"
                         required
                       />
@@ -1378,10 +1437,10 @@ const AdminPage = ({ user }) => {
                     <Grid item xs={12} md={6}>
                       <TextField
                         fullWidth
-                        label="発注リードタイム（日）"
+                        label="最短納期（日）"
                         type="number"
-                        value={productForm.leadTime}
-                        onChange={(e) => handleProductFormChange('leadTime', e.target.value)}
+                        value={productForm.minDeliveryDays}
+                        onChange={(e) => handleProductFormChange('minDeliveryDays', e.target.value)}
                         placeholder="3"
                         required
                       />
@@ -1390,7 +1449,7 @@ const AdminPage = ({ user }) => {
                       <Button
                         variant="contained"
                         onClick={handleManualSaveProduct}
-                        disabled={!productForm.customerId || !productForm.productName || !productForm.boxPrice || !productForm.leadTime}
+                        disabled={!productForm.customerId || !productForm.productName || !productForm.deliveryLocationId || !productForm.unitPrice || !productForm.minDeliveryDays}
                         size="large"
                       >
                         商品データを保存
@@ -1663,6 +1722,132 @@ const AdminPage = ({ user }) => {
                 labelDisplayedRows={({ from, to, count }) => `${from}-${to} / 全${count}件`}
               />
             </TableContainer>
+          </Box>
+        )}
+
+        {/* 納品先管理タブ */}
+        {currentTab === 3 && (
+          <Box sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              納品先の納品不可日設定
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              納品先ごとに納品できない日付を設定できます。設定した日付は発注画面で選択できなくなります。
+            </Typography>
+
+            {/* 納品先選択 */}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <FormControl fullWidth>
+                  <InputLabel>納品先を選択</InputLabel>
+                  <Select
+                    value={selectedDeliveryLocation}
+                    label="納品先を選択"
+                    onChange={(e) => handleDeliveryLocationSelect(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>選択してください</em>
+                    </MenuItem>
+                    {deliveryLocations.map((location) => (
+                      <MenuItem key={location.id} value={location.id}>
+                        {location.name} ({location.id})
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </CardContent>
+            </Card>
+
+            {/* 納品不可日の管理 */}
+            {selectedDeliveryLocation && (
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    {deliveryLocations.find(loc => loc.id === selectedDeliveryLocation)?.name} の納品不可日
+                  </Typography>
+
+                  {/* 納品不可日の追加 */}
+                  <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+                    <TextField
+                      type="date"
+                      label="納品不可日を追加"
+                      value={newUnavailableDate}
+                      onChange={(e) => setNewUnavailableDate(e.target.value)}
+                      InputLabelProps={{ shrink: true }}
+                      fullWidth
+                    />
+                    <Button
+                      variant="contained"
+                      onClick={handleAddUnavailableDate}
+                      disabled={!newUnavailableDate}
+                      sx={{ minWidth: '120px' }}
+                    >
+                      追加
+                    </Button>
+                  </Box>
+
+                  {/* 納品不可日のリスト */}
+                  {unavailableDates.length === 0 ? (
+                    <Alert severity="info">
+                      現在、納品不可日は設定されていません。
+                    </Alert>
+                  ) : (
+                    <Box>
+                      <Typography variant="subtitle2" gutterBottom>
+                        登録済み納品不可日 ({unavailableDates.length}件)
+                      </Typography>
+                      <TableContainer component={Paper} variant="outlined">
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>日付</TableCell>
+                              <TableCell>曜日</TableCell>
+                              <TableCell align="right">操作</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {unavailableDates.map((date) => {
+                              const dateObj = new Date(date + 'T00:00:00');
+                              const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+                              const dayName = dayNames[dateObj.getDay()];
+                              const formattedDate = `${dateObj.getFullYear()}年${dateObj.getMonth() + 1}月${dateObj.getDate()}日`;
+
+                              return (
+                                <TableRow key={date}>
+                                  <TableCell>{formattedDate}</TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={`${dayName}曜日`}
+                                      size="small"
+                                      color={dayName === '日' ? 'error' : dayName === '土' ? 'primary' : 'default'}
+                                    />
+                                  </TableCell>
+                                  <TableCell align="right">
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      onClick={() => handleRemoveUnavailableDate(date)}
+                                    >
+                                      <Remove />
+                                    </IconButton>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </Box>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {!selectedDeliveryLocation && (
+              <Alert severity="info">
+                納品先を選択してください。
+              </Alert>
+            )}
           </Box>
         )}
       </Paper>

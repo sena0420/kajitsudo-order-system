@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>発注データ移行ツール</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      max-width: 600px;
+      width: 100%;
+      padding: 40px;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .info-box {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+    }
+
+    .info-box h3 {
+      color: #1976d2;
+      margin-bottom: 10px;
+      font-size: 16px;
+    }
+
+    .info-box ul {
+      list-style: none;
+      padding-left: 0;
+    }
+
+    .info-box li {
+      padding: 5px 0;
+      color: #424242;
+      font-size: 14px;
+    }
+
+    .info-box li::before {
+      content: '✓ ';
+      color: #4caf50;
+      font-weight: bold;
+      margin-right: 8px;
+    }
+
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: transform 0.2s, box-shadow 0.2s;
+      margin-bottom: 10px;
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    #status {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 8px;
+      display: none;
+      white-space: pre-wrap;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      max-height: 400px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+
+    #status.success {
+      background: #e8f5e9;
+      border: 1px solid #4caf50;
+      color: #2e7d32;
+      display: block;
+    }
+
+    #status.error {
+      background: #ffebee;
+      border: 1px solid #f44336;
+      color: #c62828;
+      display: block;
+    }
+
+    #status.processing {
+      background: #fff3e0;
+      border: 1px solid #ff9800;
+      color: #e65100;
+      display: block;
+    }
+
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+      display: none;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .footer {
+      margin-top: 30px;
+      text-align: center;
+      color: #999;
+      font-size: 12px;
+    }
+
+    .warning-box {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+    }
+
+    .warning-box h3 {
+      color: #856404;
+      margin-bottom: 10px;
+      font-size: 16px;
+    }
+
+    .warning-box p {
+      color: #856404;
+      font-size: 14px;
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔄 発注データ移行ツール</h1>
+    <p class="subtitle">納品先フィールド (deliveryLocationId) を追加</p>
+
+    <div class="info-box">
+      <h3>📋 移行内容</h3>
+      <ul>
+        <li>商品名から納品先を自動判定</li>
+        <li>りんご・キャベツ → LOC0001 (本店)</li>
+        <li>みかん → LOC0002 (第2倉庫)</li>
+        <li>その他 → LOC0001 (デフォルト)</li>
+      </ul>
+    </div>
+
+    <div class="warning-box">
+      <h3>⚠️ 注意事項</h3>
+      <p>• この操作は元に戻せません</p>
+      <p>• 既にdeliveryLocationIdがある発注はスキップされます</p>
+      <p>• 実行前にFirebaseバックアップを推奨します</p>
+    </div>
+
+    <button id="migrateBtn" onclick="startMigration()">移行を開始</button>
+
+    <div class="spinner" id="spinner"></div>
+    <div id="status"></div>
+
+    <div class="footer">
+      <p>移行完了後、このファイルは削除して構いません</p>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import { getFirestore, collection, getDocs, doc, updateDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+    // Firebase設定
+    const firebaseConfig = {
+      apiKey: "AIzaSyByU7EV6BNAmtQpd3FO6J0CXXgpRKSc_Xg",
+      authDomain: "easy-order-6a6y1eaf.firebaseapp.com",
+      projectId: "easy-order-6a6y1eaf",
+      storageBucket: "easy-order-6a6y1eaf.firebasestorage.app",
+      messagingSenderId: "254141898947",
+      appId: "1:254141898947:web:030a525d1475f73c9a8276",
+      measurementId: "G-P4QP51TMKW"
+    };
+
+    // Firebase初期化
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // 商品名から納品先を判定
+    function getDeliveryLocation(items) {
+      if (!items || items.length === 0) {
+        return { id: 'LOC0001', name: '本店' };
+      }
+
+      const firstProduct = items[0].productName || '';
+
+      if (firstProduct.includes('りんご') || firstProduct.includes('キャベツ')) {
+        return { id: 'LOC0001', name: '本店' };
+      }
+
+      if (firstProduct.includes('みかん')) {
+        return { id: 'LOC0002', name: '第2倉庫' };
+      }
+
+      return { id: 'LOC0001', name: '本店' };
+    }
+
+    // 移行実行
+    window.startMigration = async function() {
+      const statusEl = document.getElementById('status');
+      const migrateBtn = document.getElementById('migrateBtn');
+      const spinner = document.getElementById('spinner');
+
+      statusEl.className = 'processing';
+      statusEl.style.display = 'block';
+      statusEl.textContent = '🔄 移行を開始しています...\n';
+      migrateBtn.disabled = true;
+      spinner.style.display = 'block';
+
+      try {
+        // ordersコレクションを取得
+        const ordersRef = collection(db, 'orders');
+        const snapshot = await getDocs(ordersRef);
+
+        statusEl.textContent += `\n📊 全${snapshot.size}件の発注データを確認中...\n`;
+
+        let updateCount = 0;
+        let skipCount = 0;
+        let errorCount = 0;
+
+        for (const docSnapshot of snapshot.docs) {
+          const order = docSnapshot.data();
+
+          // すでにdeliveryLocationIdがある場合はスキップ
+          if (order.deliveryLocationId) {
+            skipCount++;
+            statusEl.textContent += `⏭️  スキップ: ${docSnapshot.id} (すでに設定済み)\n`;
+            continue;
+          }
+
+          try {
+            // 納品先を判定
+            const location = getDeliveryLocation(order.items);
+
+            // 更新
+            const orderDoc = doc(db, 'orders', docSnapshot.id);
+            await updateDoc(orderDoc, {
+              deliveryLocationId: location.id,
+              deliveryLocationName: location.name,
+              updatedAt: new Date()
+            });
+
+            updateCount++;
+            const productNames = order.items?.map(item => item.productName).join(', ') || '不明';
+            statusEl.textContent += `✅ 更新: ${docSnapshot.id}\n   商品: ${productNames}\n   納品先: ${location.name} (${location.id})\n\n`;
+
+            // 画面を自動スクロール
+            statusEl.scrollTop = statusEl.scrollHeight;
+          } catch (error) {
+            errorCount++;
+            statusEl.textContent += `❌ エラー: ${docSnapshot.id}\n   ${error.message}\n\n`;
+          }
+        }
+
+        // 完了メッセージ
+        statusEl.className = 'success';
+        statusEl.textContent += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+        statusEl.textContent += `\n✨ 移行完了！\n`;
+        statusEl.textContent += `   更新: ${updateCount} 件\n`;
+        statusEl.textContent += `   スキップ: ${skipCount} 件\n`;
+        if (errorCount > 0) {
+          statusEl.textContent += `   エラー: ${errorCount} 件\n`;
+        }
+        statusEl.textContent += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+        statusEl.textContent += '🎉 発注履歴画面をリロードして確認してください！\n';
+        statusEl.textContent += '\n💡 このHTMLファイル (migrate-orders.html) は削除して構いません。';
+
+        spinner.style.display = 'none';
+
+      } catch (error) {
+        console.error('移行エラー:', error);
+        statusEl.className = 'error';
+        statusEl.textContent += `\n\n❌ エラーが発生しました:\n${error.message}\n\n`;
+        statusEl.textContent += 'Firebase設定を確認してください。';
+        spinner.style.display = 'none';
+        migrateBtn.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>
