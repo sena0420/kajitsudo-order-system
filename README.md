@@ -62,6 +62,8 @@
   - 得意先名オートコンプリート
   - コード重複チェック
   - 未使用コードの自動提案
+  - **顧客マスタ一覧表示（NEW！）** - 得意先コード・名前・メール・担当者・状態を一覧表示
+  - **商品マスタ一覧表示（NEW！）** - 作業コード・商品名・規格・産地・単価・リードタイム・発注回数・状態を一覧表示
 
 - **実行履歴タブ**
   - バッチ処理履歴の詳細表示
@@ -198,12 +200,19 @@ REACT_APP_FIREBASE_APP_ID=1:123456789:web:abcdef
 REACT_APP_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
 ```
 
-#### セキュリティルール設定
+#### セキュリティルール設定（重要！）
+本番用Security Rulesをデプロイします：
+
 ```bash
 firebase deploy --only firestore:rules
 ```
 
-または Firebase Console から手動で設定（`firestore.rules`の内容をコピー）
+または Firebase Console から手動で設定:
+1. Firebase Console > Firestore Database > ルール
+2. `firestore.rules`の内容をコピー＆ペースト
+3. 「公開」ボタンをクリック
+
+**注意**: 本番用ルールは開発中のルールよりも厳密です。Custom Claimsの設定が必要です。
 
 #### 複合インデックス作成
 以下のクエリ実行時にエラーメッセージが表示されるので、リンクをクリックして自動作成：
@@ -399,22 +408,38 @@ firebase deploy
 - **Firebase Authentication** による安全な認証（本番環境で稼働中）
 - メール/パスワード方式の安全な認証フロー
 - パスワード自動生成機能（7桁の安全なパスワード）
-- 管理者権限の分離
+- **Custom Claims** による管理者権限の分離
+- 顧客IDの自動付与（ユーザー登録時）
 
-### データアクセス制御
-- **Firestore Security Rules** によるデータアクセス制御
-- Email-based認証によるアクセス権限管理
-- 顧客別データ分離（マルチテナント対応）
-- 読み取り・書き込み・更新・削除の細かい権限設定
+### データアクセス制御（NEW！強化版）
+- **Firestore Security Rules** によるデータアクセス制御（本番用ルール適用済み）
+- **マルチテナント対応**: 顧客は自分のデータのみアクセス可能
+- **ゼロトラストアプローチ**: デフォルト全拒否、明示的許可のみ通す
+- **フィールドレベル制御**: 一般ユーザーが更新できるフィールドを厳密に制限
+- **Custom Claims** による権限管理:
+  - 管理者: `admin=true` で全データアクセス可能
+  - 一般ユーザー: `customerId` で自分の得意先データのみアクセス
+
+詳細は [SECURITY_RULES.md](SECURITY_RULES.md) を参照してください。
+
+### Custom Claimsの設定方法
+
+```bash
+# Firebase Functions Shellで実行
+firebase functions:shell
+
+# 管理者権限を付与
+> admin.auth().setCustomUserClaims('ユーザーUID', { admin: true })
+
+# 一般ユーザーに得意先IDを付与
+> admin.auth().setCustomUserClaims('ユーザーUID', { customerId: '000001' })
+```
 
 ### 通信・インフラ
 - HTTPS通信による暗号化
 - Firebase Hostingによる安全なデプロイ
 - 環境変数による機密情報の保護（`.env`はgitignore対象）
-
-### 将来の拡張計画
-- Custom Claimsによる高度な権限管理（実装予定）
-- カスタムクレームによる顧客ID・管理者フラグの管理
+- Security Rulesによるサーバー側検証（クライアント側の処理は信用しない）
 
 ## トラブルシューティング
 
@@ -490,6 +515,8 @@ Missing or insufficient permissions
 - **2025年10月7日**: 発注データエクスポート機能、発注履歴の自動ステータス更新機能を実装
 - **2025年10月8日**: Firebase本番環境接続、PDF帳票出力機能、管理者画面分割（マスタ管理/受注管理）、ステータスフィルター強化
 - **2025年10月9日**: 複数納品先対応機能を実装（納品先選択画面、納品先別フィルタリング、Security Rules更新）
+- **2026年2月19日**: バグ修正2件（配送日タイムゾーンズレ、発注履歴未反映）、管理者画面に顧客・商品マスタ一覧表示機能を追加
+- **2026年4月3日**: マスタ一覧の状態変更機能、受注管理への納品先フィルター追加、**Security Rules本番用更新**（マルチテナント対応、フィールドレベル制御、Custom Claims対応）
 
 ## ライセンス
 

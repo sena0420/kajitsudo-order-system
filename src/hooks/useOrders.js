@@ -86,8 +86,8 @@ export const useOrders = (customerId, deliveryLocationId = null) => {
         // デモモード: localStorageから既存の発注データを取得
         const savedOrders = loadOrdersFromStorage();
 
-        // モックデータが10件未満の場合は、最新のモックデータで置き換える
-        const sampleOrders = savedOrders.length >= 10 && false ? savedOrders : [
+        // localStorageに保存済みのデータがあればそれを使う。なければモックデータを使用する
+        const sampleOrders = savedOrders.length > 0 ? savedOrders : [
         {
           id: 'ORD001',
           customerId: customerId,

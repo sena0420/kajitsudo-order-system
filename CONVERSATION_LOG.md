@@ -2084,6 +2084,180 @@ if (!user.isAdmin && !user.deliveryLocationId) {
 - 複合インデックス: deliveryLocations, products, orders（全て「有効」状態）
 
 ---
+
+## 2026年2月19日の開発作業
+
+### 実施した作業
+
+#### 1. **配送日デフォルト値のタイムゾーンズレ修正**
+
+**問題**:
+- 発注画面で商品ごとに表示されるデフォルト配送日が、期待より1日前の日付になっていた
+- 例: 最短2日後のトマトで、2026/02/19（今日）に発注すると、2026/02/20が表示される（正しくは2026/02/21）
+
+**原因**:
+- `getMinDeliveryDate()` 関数が `toISOString()` でUTCに変換していたため、日本時間（UTC+9）では9時間分ずれて前日の日付になっていた
+
+**修正箇所**: `src/components/OrderPage.js:137-144`
+
+```javascript
+// Before（UTC変換でズレが発生）
+const getMinDeliveryDate = (minDays) => {
+  const date = new Date();
+  date.setDate(date.getDate() + minDays);
+  return date.toISOString().split('T')[0]; // UTC変換でズレる
+};
+
+// After（ローカル日付で正確に計算）
+const getMinDeliveryDate = (minDays) => {
+  const date = new Date();
+  date.setDate(date.getDate() + minDays);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+```
+
+**動作確認**: 修正後、最短2日後のトマトのデフォルト配送日が2026/02/21に正しく表示されることを確認
+
+---
+
+#### 2. **発注後に発注履歴に反映されない問題の修正**
+
+**問題**:
+- 発注確定ボタンを押しても、発注履歴タブに新規発注が表示されない
+
+**原因**:
+- `src/hooks/useOrders.js:90` に `&& false` という条件が残っていた
+- これにより、localStorageに実際の発注データが保存されていても、常にモックデータで上書きされていた
+
+```javascript
+// Before（&& false が常にfalseにするため、localStorageデータが無視される）
+const sampleOrders = savedOrders.length >= 10 && false ? savedOrders : [
+  // ... モックデータ
+];
+
+// After（localStorageにデータがあればそれを使用）
+const sampleOrders = savedOrders.length > 0 ? savedOrders : [
+  // ... モックデータ（初回アクセス時のみ）
+];
+```
+
+**修正箇所**: `src/hooks/useOrders.js:90`
+
+**動作確認**: 修正後、発注確定後に発注履歴タブに新規発注が追加されることを確認
+
+---
+
+#### 3. **管理者画面 手動管理タブに顧客一覧・商品一覧機能を追加**
+
+**ユーザー要望**:
+> マスタ管理画面において、現在登録されているマスタ情報を確認する方法は？
+> 「顧客一覧」「商品一覧」の表示機能を追加してほしい
+
+**実装内容**:
+
+**場所**: `src/components/AdminPage.js` - 手動管理タブ
+
+1. **「顧客一覧」ボタンの追加**:
+   - 既存の「顧客登録」「商品登録」ボタンの左側に追加
+   - セカンダリカラー（紫）で区別しやすいデザイン
+   - Visibilityアイコン付き
+
+2. **「商品一覧」ボタンの追加**:
+   - 同様にセカンダリカラーで追加
+
+3. **顧客マスタ一覧テーブル**:
+   - 列: 得意先コード、得意先名、メールアドレス、営業担当者ID、状態（アクティブ/無効）
+   - 状態はColorChipで視覚的に表示
+   - 更新ボタンで再読み込み可能
+
+4. **商品マスタ一覧テーブル**:
+   - 列: 得意先コード、作業コード、商品名、規格、産地、単価（円）、リードタイム、発注回数、状態
+   - 状態はColorChipで視覚的に表示
+   - 更新ボタンで再読み込み可能
+
+5. **データ取得ロジック**:
+   - Firebase接続時: Firestoreから実データを取得
+   - デモモード時: モックデータを表示
+
+**新規追加の状態変数（AdminPage.js:109-112）**:
+```javascript
+const [masterCustomers, setMasterCustomers] = useState([]);
+const [masterProducts, setMasterProducts] = useState([]);
+const [masterLoading, setMasterLoading] = useState(false);
+```
+
+**新規追加の関数（AdminPage.js:825-871）**:
+```javascript
+const loadMasterList = async (type) => {
+  // Firebase接続時はFirestoreから、デモモード時はモックデータを使用
+};
+```
+
+---
+
+### 発生した問題と解決方法
+
+#### 問題1: 配送日がタイムゾーンの影響で1日前になる
+- **原因**: `toISOString()` がUTC変換するため、JST（+9h）の環境では前日日付になる
+- **解決**: `getFullYear()`/`getMonth()`/`getDate()` でローカル時間の日付文字列を生成
+
+#### 問題2: 発注してもlocalStorageに保存されたデータが読み込まれない
+- **原因**: `useOrders.js` に `&& false` という不要な条件が残っていた
+- **解決**: `savedOrders.length > 0 ? savedOrders : [モックデータ]` に変更
+
+---
+
+### ファイル更新履歴
+
+**更新ファイル**:
+1. **`src/components/OrderPage.js`**
+   - `getMinDeliveryDate()` のタイムゾーン対応修正（137-144行目）
+
+2. **`src/hooks/useOrders.js`**
+   - デモモードでlocalStorageのデータを正しく読み込むよう修正（90行目）
+
+3. **`src/components/AdminPage.js`**
+   - 手動管理タブに「顧客一覧」「商品一覧」ボタンを追加
+   - 顧客マスタ一覧テーブルを追加
+   - 商品マスタ一覧テーブルを追加
+   - `masterCustomers`, `masterProducts`, `masterLoading` 状態変数を追加
+   - `loadMasterList()` 関数を追加
+
+---
+
+### 完成した機能一覧
+
+**今回実装・修正**:
+- ✅ **配送日デフォルト値のタイムゾーン修正** ← バグ修正
+- ✅ **発注履歴へのリアルタイム反映修正** ← バグ修正
+- ✅ **管理者画面 顧客マスタ一覧表示** ← 新機能
+- ✅ **管理者画面 商品マスタ一覧表示** ← 新機能
+
+---
+
+### 次回への引き継ぎ事項
+
+**完了した作業**:
+- ✅ 配送日のタイムゾーンズレ修正
+- ✅ 発注履歴の反映バグ修正
+- ✅ 管理者画面への顧客・商品一覧機能の追加
+
+**今後の実装予定**:
+1. **管理者画面への納品先フィルター追加**（前回からの継続課題）
+   - 受注データエクスポート画面に納品先フィルターを追加
+2. **Security Rulesの本番用更新**（前回からの継続課題）
+3. **Custom Claimの設定**（前回からの継続課題）
+4. **マスタ一覧からの編集・削除機能**
+   - 現状は閲覧のみ。今後、行クリックで編集ダイアログを開く機能の追加を検討
+
+**技術的な課題**:
+- デモモードの顧客一覧・商品一覧はモックデータのみ（Firebase接続後は実データ表示）
+- 管理者画面でのFirestore連携（マスタ一覧はFirestoreから取得済み、手動登録はまだモック）
+
+---
 **記録作成日**: 2025年9月2日
-**最終更新**: 2025年10月10日
-**次回作業**: 管理者アカウントでの運用テスト、発注履歴の表示の不具合の修正
+**最終更新**: 2026年2月19日
+**次回作業**: 管理者画面への納品先フィルター追加、Security Rulesの本番用更新、Custom Claimの設定

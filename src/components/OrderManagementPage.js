@@ -40,6 +40,7 @@ const OrderManagementPage = ({ user }) => {
   const [currentTab, setCurrentTab] = useState(0);
   const [allOrders, setAllOrders] = useState([]);
   const [allCustomers, setAllCustomers] = useState([]);
+  const [allDeliveryLocations, setAllDeliveryLocations] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // エクスポート関連のstate
@@ -47,6 +48,7 @@ const OrderManagementPage = ({ user }) => {
     startDate: '',
     endDate: '',
     customerId: '',
+    deliveryLocationId: '',
     selectedStatuses: ['pending', 'change_pending']
   });
   const [exportFormat, setExportFormat] = useState('csv');
@@ -58,6 +60,7 @@ const OrderManagementPage = ({ user }) => {
     startDate: '',
     endDate: '',
     customerId: '',
+    deliveryLocationId: '',
     selectedStatuses: ['pending', 'change_pending']
   });
 
@@ -101,14 +104,28 @@ const OrderManagementPage = ({ user }) => {
             customerName: doc.data().name
           }));
 
+          // 全ての納品先を取得
+          const deliveryLocationsRef = collection(db, 'deliveryLocations');
+          const deliveryLocationsSnapshot = await getDocs(deliveryLocationsRef);
+          const deliveryLocationsData = deliveryLocationsSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+
           setAllOrders(ordersData);
           setAllCustomers(customersData);
+          setAllDeliveryLocations(deliveryLocationsData);
         } else {
           // デモモード: モックデータ
           setAllCustomers([
             { customerId: '000001', customerName: 'サンプル顧客' },
             { customerId: '000002', customerName: 'テスト商店' },
             { customerId: '000003', customerName: 'デモスーパー' }
+          ]);
+          setAllDeliveryLocations([
+            { id: 'LOC0001', customerId: '000001', name: '本店', address: '東京都渋谷区', isActive: true },
+            { id: 'LOC0002', customerId: '000001', name: '支店A', address: '東京都新宿区', isActive: true },
+            { id: 'LOC0003', customerId: '000002', name: '本店', address: '大阪府大阪市', isActive: true }
           ]);
         }
       } catch (error) {
@@ -171,6 +188,10 @@ const OrderManagementPage = ({ user }) => {
       }
       // 得意先フィルター
       if (exportFilter.customerId && order.customerId !== exportFilter.customerId) {
+        return false;
+      }
+      // 納品先フィルター
+      if (exportFilter.deliveryLocationId && order.deliveryLocationId !== exportFilter.deliveryLocationId) {
         return false;
       }
       // ステータスフィルター（選択されたステータスのみ含める）
@@ -360,6 +381,10 @@ const OrderManagementPage = ({ user }) => {
         }
       }
       if (reportFilter.customerId && order.customerId !== reportFilter.customerId) {
+        return false;
+      }
+      // 納品先フィルター
+      if (reportFilter.deliveryLocationId && order.deliveryLocationId !== reportFilter.deliveryLocationId) {
         return false;
       }
       // ステータスフィルター（選択されたステータスのみ含める）
@@ -575,7 +600,7 @@ const OrderManagementPage = ({ user }) => {
                   エクスポート条件
                 </Typography>
                 <Grid container spacing={2}>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={2.4}>
                     <TextField
                       fullWidth
                       size="small"
@@ -586,7 +611,7 @@ const OrderManagementPage = ({ user }) => {
                       InputLabelProps={{ shrink: true }}
                     />
                   </Grid>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={2.4}>
                     <TextField
                       fullWidth
                       size="small"
@@ -597,21 +622,36 @@ const OrderManagementPage = ({ user }) => {
                       InputLabelProps={{ shrink: true }}
                     />
                   </Grid>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={2.4}>
                     <Autocomplete
                       size="small"
                       options={mockCustomers}
                       getOptionLabel={(option) => `${option.customerId} - ${option.customerName}`}
                       value={mockCustomers.find(c => c.customerId === exportFilter.customerId) || null}
                       onChange={(event, newValue) => {
-                        setExportFilter({ ...exportFilter, customerId: newValue ? newValue.customerId : '' });
+                        setExportFilter({ ...exportFilter, customerId: newValue ? newValue.customerId : '', deliveryLocationId: '' });
                       }}
                       renderInput={(params) => (
                         <TextField {...params} label="得意先" placeholder="全て" />
                       )}
                     />
                   </Grid>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={2.4}>
+                    <Autocomplete
+                      size="small"
+                      options={exportFilter.customerId ? allDeliveryLocations.filter(loc => loc.customerId === exportFilter.customerId && loc.isActive) : []}
+                      getOptionLabel={(option) => `${option.name}${option.address ? ' - ' + option.address : ''}`}
+                      value={allDeliveryLocations.find(loc => loc.id === exportFilter.deliveryLocationId) || null}
+                      onChange={(event, newValue) => {
+                        setExportFilter({ ...exportFilter, deliveryLocationId: newValue ? newValue.id : '' });
+                      }}
+                      renderInput={(params) => (
+                        <TextField {...params} label="納品先" placeholder={exportFilter.customerId ? '全て' : '得意先を選択してください'} />
+                      )}
+                      disabled={!exportFilter.customerId}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={2.4}>
                     <FormControl component="fieldset" size="small">
                       <Typography variant="subtitle2" gutterBottom>ステータス</Typography>
                       <Box sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -772,7 +812,7 @@ const OrderManagementPage = ({ user }) => {
                   出力条件
                 </Typography>
                 <Grid container spacing={2}>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={2.4}>
                     <TextField
                       fullWidth
                       size="small"
@@ -783,7 +823,7 @@ const OrderManagementPage = ({ user }) => {
                       InputLabelProps={{ shrink: true }}
                     />
                   </Grid>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={2.4}>
                     <TextField
                       fullWidth
                       size="small"
@@ -794,21 +834,36 @@ const OrderManagementPage = ({ user }) => {
                       InputLabelProps={{ shrink: true }}
                     />
                   </Grid>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={2.4}>
                     <Autocomplete
                       size="small"
                       options={mockCustomers}
                       getOptionLabel={(option) => `${option.customerId} - ${option.customerName}`}
                       value={mockCustomers.find(c => c.customerId === reportFilter.customerId) || null}
                       onChange={(event, newValue) => {
-                        setReportFilter({ ...reportFilter, customerId: newValue ? newValue.customerId : '' });
+                        setReportFilter({ ...reportFilter, customerId: newValue ? newValue.customerId : '', deliveryLocationId: '' });
                       }}
                       renderInput={(params) => (
                         <TextField {...params} label="得意先" placeholder="全て" />
                       )}
                     />
                   </Grid>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={2.4}>
+                    <Autocomplete
+                      size="small"
+                      options={reportFilter.customerId ? allDeliveryLocations.filter(loc => loc.customerId === reportFilter.customerId && loc.isActive) : []}
+                      getOptionLabel={(option) => `${option.name}${option.address ? ' - ' + option.address : ''}`}
+                      value={allDeliveryLocations.find(loc => loc.id === reportFilter.deliveryLocationId) || null}
+                      onChange={(event, newValue) => {
+                        setReportFilter({ ...reportFilter, deliveryLocationId: newValue ? newValue.id : '' });
+                      }}
+                      renderInput={(params) => (
+                        <TextField {...params} label="納品先" placeholder={reportFilter.customerId ? '全て' : '得意先を選択してください'} />
+                      )}
+                      disabled={!reportFilter.customerId}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={2.4}>
                     <FormControl component="fieldset" size="small">
                       <Typography variant="subtitle2" gutterBottom>ステータス</Typography>
                       <Box sx={{ display: 'flex', flexDirection: 'column' }}>

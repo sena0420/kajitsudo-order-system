@@ -56,6 +56,7 @@ import RadioGroup from '@mui/material/RadioGroup';
 import { generateCustomerPassword } from '../utils/passwordGenerator';
 import { formatCsvCodes, validateCustomerCode, validateWorkCode, generateNextWorkCode, formatCustomerCode, formatWorkCode } from '../utils/codeFormatter';
 import * as XLSX from 'xlsx';
+import UserManagementTab from './UserManagementTab';
 // Firebase Functions インポートをコンポーネント内に移動
 
 const AdminPage = ({ user }) => {
@@ -105,6 +106,26 @@ const AdminPage = ({ user }) => {
   
   // 手動管理用の状態
   const [manualDataType, setManualDataType] = useState('customers');
+
+  // マスタ一覧表示用の状態
+  const [masterCustomers, setMasterCustomers] = useState([]);
+  const [masterProducts, setMasterProducts] = useState([]);
+  const [masterLoading, setMasterLoading] = useState(false);
+
+  // 状態変更確認ダイアログ用の状態
+  const [statusChangeDialogOpen, setStatusChangeDialogOpen] = useState(false);
+  const [statusChangeTarget, setStatusChangeTarget] = useState(null); // { type: 'customer'/'product', id, currentStatus, name }
+
+  // ユーザー管理用の状態
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [claimsDialogOpen, setClaimsDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [claimsForm, setClaimsForm] = useState({
+    admin: false,
+    customerId: ''
+  });
+
   const [customerForm, setCustomerForm] = useState({
     customerId: '',
     customerName: '',
@@ -816,6 +837,121 @@ const AdminPage = ({ user }) => {
     }
   };
 
+  // 状態変更確認ダイアログを開く
+  const handleOpenStatusChangeDialog = (type, item) => {
+    setStatusChangeTarget({
+      type: type,
+      id: item.id,
+      customerId: item.customerId,
+      currentStatus: item.isActive,
+      name: type === 'customer' ? (item.name || item.customerName) : item.name
+    });
+    setStatusChangeDialogOpen(true);
+  };
+
+  // 状態変更を実行
+  const handleConfirmStatusChange = async () => {
+    if (!statusChangeTarget) return;
+
+    try {
+      const { auth } = require('../firebase/config');
+      const isFirebaseAvailable = auth !== null;
+
+      const newStatus = !statusChangeTarget.currentStatus;
+
+      if (isFirebaseAvailable) {
+        const { doc, updateDoc } = require('firebase/firestore');
+        const { db } = require('../firebase/config');
+
+        // Firestoreで状態を更新
+        const collectionName = statusChangeTarget.type === 'customer' ? 'customers' : 'products';
+        const docRef = doc(db, collectionName, statusChangeTarget.id);
+        await updateDoc(docRef, { isActive: newStatus });
+
+        // ローカル状態も更新
+        if (statusChangeTarget.type === 'customer') {
+          setMasterCustomers(prev => prev.map(item =>
+            item.id === statusChangeTarget.id ? { ...item, isActive: newStatus } : item
+          ));
+        } else {
+          setMasterProducts(prev => prev.map(item =>
+            item.id === statusChangeTarget.id ? { ...item, isActive: newStatus } : item
+          ));
+        }
+
+        alert(`状態を「${newStatus ? 'アクティブ' : '無効'}」に変更しました`);
+      } else {
+        // デモモード：ローカル状態のみ更新
+        if (statusChangeTarget.type === 'customer') {
+          setMasterCustomers(prev => prev.map(item =>
+            item.id === statusChangeTarget.id ? { ...item, isActive: newStatus } : item
+          ));
+        } else {
+          setMasterProducts(prev => prev.map(item =>
+            item.id === statusChangeTarget.id ? { ...item, isActive: newStatus } : item
+          ));
+        }
+
+        alert(`状態を「${newStatus ? 'アクティブ' : '無効'}」に変更しました（デモモード）`);
+      }
+    } catch (error) {
+      console.error('状態変更エラー:', error);
+      alert('状態の変更に失敗しました');
+    } finally {
+      setStatusChangeDialogOpen(false);
+      setStatusChangeTarget(null);
+    }
+  };
+
+  // マスタ一覧を取得
+  const loadMasterList = async (type) => {
+    setMasterLoading(true);
+    try {
+      const { auth } = require('../firebase/config');
+      const isFirebaseAvailable = auth !== null;
+
+      if (isFirebaseAvailable) {
+        const { collection, getDocs, query, orderBy } = require('firebase/firestore');
+        const { db } = require('../firebase/config');
+
+        if (type === 'customerList') {
+          const q = query(collection(db, 'customers'), orderBy('name'));
+          const snapshot = await getDocs(q);
+          setMasterCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        } else if (type === 'productList') {
+          const q = query(collection(db, 'products'), orderBy('customerId'));
+          const snapshot = await getDocs(q);
+          setMasterProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }
+      } else {
+        // デモモード：モックデータを使用
+        if (type === 'customerList') {
+          setMasterCustomers([
+            { id: '000001', customerId: '000001', name: 'サンプル顧客', email: 'customer001@example.com', salesStaffId: 'STAFF001', isActive: true },
+            { id: '000002', customerId: '000002', name: 'テスト商店', email: 'customer002@example.com', salesStaffId: 'STAFF001', isActive: true },
+            { id: '000003', customerId: '000003', name: '○○商事', email: 'customer003@example.com', salesStaffId: 'STAFF002', isActive: true },
+            { id: '000004', customerId: '000004', name: 'デモスーパー', email: 'customer004@example.com', salesStaffId: 'STAFF002', isActive: false },
+            { id: '000005', customerId: '000005', name: 'サンプルマート', email: 'customer005@example.com', salesStaffId: 'STAFF001', isActive: true },
+          ]);
+        } else if (type === 'productList') {
+          setMasterProducts([
+            { id: 'P001', customerId: '000001', workCode: 'A123', name: 'りんご', specification: '5kg箱', origin: '青森県', unitPrice: 2500, minDeliveryDays: 2, orderCount: 15, isActive: true },
+            { id: 'P002', customerId: '000001', workCode: 'B456', name: 'みかん', specification: '10kg箱', origin: '愛媛県', unitPrice: 3200, minDeliveryDays: 3, orderCount: 8, isActive: true },
+            { id: 'P003', customerId: '000001', workCode: 'C789', name: 'バナナ', specification: '13kg箱', origin: 'フィリピン', unitPrice: 1800, minDeliveryDays: 1, orderCount: 12, isActive: true },
+            { id: 'P004', customerId: '000001', workCode: 'D012', name: 'キャベツ', specification: '1玉', origin: '群馬県', unitPrice: 150, minDeliveryDays: 1, orderCount: 5, isActive: true },
+            { id: 'P005', customerId: '000001', workCode: 'E345', name: 'トマト', specification: '4kg箱', origin: '熊本県', unitPrice: 1200, minDeliveryDays: 2, orderCount: 18, isActive: true },
+            { id: 'P006', customerId: '000002', workCode: 'F678', name: 'レタス', specification: '1ケース', origin: '長野県', unitPrice: 900, minDeliveryDays: 2, orderCount: 3, isActive: true },
+            { id: 'P007', customerId: '000002', workCode: 'G901', name: 'きゅうり', specification: '1袋', origin: '群馬県', unitPrice: 800, minDeliveryDays: 1, orderCount: 7, isActive: true },
+          ]);
+        }
+      }
+    } catch (error) {
+      console.error('マスタ取得エラー:', error);
+    } finally {
+      setMasterLoading(false);
+    }
+  };
+
   // モックの発注データ取得（localStorageから全顧客の発注データを取得）
   const getMockOrders = () => {
     const allOrders = [];
@@ -1037,6 +1173,7 @@ const AdminPage = ({ user }) => {
           <Tab label="一括更新" />
           <Tab label="手動管理" />
           <Tab label="実行履歴" />
+          <Tab label="ユーザー管理" />
         </Tabs>
 
         {/* 一括更新タブ */}
@@ -1142,15 +1279,30 @@ const AdminPage = ({ user }) => {
         {/* 手動管理タブ */}
         {currentTab === 1 && (
           <Box sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1 }}>
               <Typography variant="h6">
                 個別データ管理
               </Typography>
-              <Box>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                <Button
+                  variant={manualDataType === 'customerList' ? 'contained' : 'outlined'}
+                  color="secondary"
+                  onClick={() => { setManualDataType('customerList'); loadMasterList('customerList'); }}
+                  startIcon={<Visibility />}
+                >
+                  顧客一覧
+                </Button>
+                <Button
+                  variant={manualDataType === 'productList' ? 'contained' : 'outlined'}
+                  color="secondary"
+                  onClick={() => { setManualDataType('productList'); loadMasterList('productList'); }}
+                  startIcon={<Visibility />}
+                >
+                  商品一覧
+                </Button>
                 <Button
                   variant={manualDataType === 'customers' ? 'contained' : 'outlined'}
                   onClick={() => setManualDataType('customers')}
-                  sx={{ mr: 1 }}
                   startIcon={<PersonAdd />}
                 >
                   顧客登録
@@ -1164,6 +1316,148 @@ const AdminPage = ({ user }) => {
                 </Button>
               </Box>
             </Box>
+
+            {/* 顧客一覧 */}
+            {manualDataType === 'customerList' && (
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="subtitle1">
+                    顧客マスタ一覧
+                  </Typography>
+                  <Button
+                    size="small"
+                    startIcon={masterLoading ? <CircularProgress size={16} /> : <History />}
+                    onClick={() => loadMasterList('customerList')}
+                    disabled={masterLoading}
+                  >
+                    更新
+                  </Button>
+                </Box>
+                {masterLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                    <CircularProgress />
+                  </Box>
+                ) : (
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>得意先コード</TableCell>
+                          <TableCell>得意先名</TableCell>
+                          <TableCell>メールアドレス</TableCell>
+                          <TableCell>営業担当者ID</TableCell>
+                          <TableCell align="center">状態</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {masterCustomers.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} align="center">
+                              <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+                                データがありません
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          masterCustomers.map((customer) => (
+                            <TableRow key={customer.id} hover>
+                              <TableCell>{customer.customerId || customer.id}</TableCell>
+                              <TableCell>{customer.name || customer.customerName}</TableCell>
+                              <TableCell>{customer.email}</TableCell>
+                              <TableCell>{customer.salesStaffId || '-'}</TableCell>
+                              <TableCell align="center">
+                                <Chip
+                                  label={customer.isActive ? 'アクティブ' : '無効'}
+                                  size="small"
+                                  color={customer.isActive ? 'success' : 'default'}
+                                  onClick={() => handleOpenStatusChangeDialog('customer', customer)}
+                                  sx={{ cursor: 'pointer' }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Box>
+            )}
+
+            {/* 商品一覧 */}
+            {manualDataType === 'productList' && (
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="subtitle1">
+                    商品マスタ一覧
+                  </Typography>
+                  <Button
+                    size="small"
+                    startIcon={masterLoading ? <CircularProgress size={16} /> : <History />}
+                    onClick={() => loadMasterList('productList')}
+                    disabled={masterLoading}
+                  >
+                    更新
+                  </Button>
+                </Box>
+                {masterLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                    <CircularProgress />
+                  </Box>
+                ) : (
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>得意先コード</TableCell>
+                          <TableCell>作業コード</TableCell>
+                          <TableCell>商品名</TableCell>
+                          <TableCell>規格</TableCell>
+                          <TableCell>産地</TableCell>
+                          <TableCell align="right">単価（円）</TableCell>
+                          <TableCell align="center">リードタイム</TableCell>
+                          <TableCell align="center">発注回数</TableCell>
+                          <TableCell align="center">状態</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {masterProducts.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={9} align="center">
+                              <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+                                データがありません
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          masterProducts.map((product) => (
+                            <TableRow key={product.id} hover>
+                              <TableCell>{product.customerId}</TableCell>
+                              <TableCell>{product.workCode}</TableCell>
+                              <TableCell>{product.name}</TableCell>
+                              <TableCell>{product.specification}</TableCell>
+                              <TableCell>{product.origin}</TableCell>
+                              <TableCell align="right">¥{(product.unitPrice || 0).toLocaleString()}</TableCell>
+                              <TableCell align="center">{product.minDeliveryDays}日</TableCell>
+                              <TableCell align="center">{product.orderCount || 0}</TableCell>
+                              <TableCell align="center">
+                                <Chip
+                                  label={product.isActive ? 'アクティブ' : '無効'}
+                                  size="small"
+                                  color={product.isActive ? 'success' : 'default'}
+                                  onClick={() => handleOpenStatusChangeDialog('product', product)}
+                                  sx={{ cursor: 'pointer' }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Box>
+            )}
 
             {/* 顧客登録フォーム */}
             {manualDataType === 'customers' && (
@@ -2018,6 +2312,79 @@ const AdminPage = ({ user }) => {
           </Button>
           <Button onClick={() => setColumnDialogOpen(false)} variant="contained">
             完了
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ユーザー管理タブ */}
+      {currentTab === 3 && (
+        <UserManagementTab />
+      )}
+
+      {/* 状態変更確認ダイアログ */}
+      <Dialog
+        open={statusChangeDialogOpen}
+        onClose={() => setStatusChangeDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          状態変更の確認
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body1" gutterBottom>
+              {statusChangeTarget?.type === 'customer' ? '顧客' : '商品'}: <strong>{statusChangeTarget?.name}</strong>
+            </Typography>
+            <Typography variant="body2">
+              {statusChangeTarget?.type === 'customer' && (
+                <>得意先コード: {statusChangeTarget?.customerId}</>
+              )}
+            </Typography>
+          </Alert>
+
+          <Typography variant="body1" gutterBottom>
+            現在の状態: <Chip
+              label={statusChangeTarget?.currentStatus ? 'アクティブ' : '無効'}
+              size="small"
+              color={statusChangeTarget?.currentStatus ? 'success' : 'default'}
+            />
+          </Typography>
+
+          <Typography variant="body1" gutterBottom sx={{ mt: 2 }}>
+            変更後の状態: <Chip
+              label={!statusChangeTarget?.currentStatus ? 'アクティブ' : '無効'}
+              size="small"
+              color={!statusChangeTarget?.currentStatus ? 'success' : 'default'}
+            />
+          </Typography>
+
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              {statusChangeTarget?.currentStatus ? (
+                <>
+                  「無効」に変更すると、この{statusChangeTarget?.type === 'customer' ? '顧客' : '商品'}は
+                  {statusChangeTarget?.type === 'customer' ? 'ログインできなくなります' : '発注画面に表示されなくなります'}。
+                </>
+              ) : (
+                <>
+                  「アクティブ」に変更すると、この{statusChangeTarget?.type === 'customer' ? '顧客' : '商品'}は
+                  {statusChangeTarget?.type === 'customer' ? '再びログインできるようになります' : '発注画面に再表示されます'}。
+                </>
+              )}
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStatusChangeDialogOpen(false)}>
+            キャンセル
+          </Button>
+          <Button
+            onClick={handleConfirmStatusChange}
+            variant="contained"
+            color={!statusChangeTarget?.currentStatus ? 'success' : 'warning'}
+          >
+            状態を変更
           </Button>
         </DialogActions>
       </Dialog>

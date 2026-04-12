@@ -2,74 +2,176 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ============================================
     // ヘルパー関数
+    // ============================================
+
+    // 認証済みかどうか
     function isAuthenticated() {
       return request.auth != null;
     }
 
+    // 管理者かどうか（Custom Claims使用）
     function isAdmin() {
-      // 一時的にメールアドレスベースで管理者判定（Custom Claims設定前）
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        request.auth.token.email == 'admin@example.com' ||
-        request.auth.token.email == 'sakura@example.com'
+        // 開発環境用: 特定のメールアドレスも管理者扱い（本番では削除推奨）
+        request.auth.token.email == 'admin@example.com'
       );
     }
 
+    // ログインユーザーの得意先ID取得
     function getCustomerId() {
       return request.auth.token.customerId;
     }
 
+    // 自分の得意先データかどうか
     function isOwnCustomer(customerId) {
       return isAuthenticated() && getCustomerId() == customerId;
     }
 
-    // 顧客マスタ
+    // ログインユーザーのメールアドレスと一致するか
+    function isOwnEmail(email) {
+      return isAuthenticated() && request.auth.token.email == email;
+    }
+
+    // データが存在するか確認
+    function existingData() {
+      return resource.data;
+    }
+
+    // 新規データを取得
+    function incomingData() {
+      return request.resource.data;
+    }
+
+    // ============================================
+    // 顧客マスタ (customers)
+    // ============================================
     match /customers/{customerId} {
-      // 開発中: 認証済みユーザーは全て読み取り可能
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      // 読み取り: 管理者は全て、一般ユーザーは自分の顧客データのみ
+      allow read: if isAdmin() || isOwnCustomer(customerId);
+
+      // 作成・更新・削除: 管理者のみ
+      allow create, update, delete: if isAdmin();
     }
 
-    // 納品先マスタ
+    // ============================================
+    // 納品先マスタ (deliveryLocations)
+    // ============================================
     match /deliveryLocations/{locationId} {
-      // 認証済みユーザーは全て読み取り可能（アプリ側でフィルタリング）
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      // 読み取り: 管理者は全て、一般ユーザーは自分の得意先の納品先のみ
+      allow read: if isAdmin() || (
+        isAuthenticated() &&
+        existingData().customerId == getCustomerId()
+      );
+
+      // 作成・更新・削除: 管理者のみ
+      allow create, update, delete: if isAdmin();
     }
 
-    // 営業担当者マスタ
+    // ============================================
+    // 営業担当者マスタ (salesStaff)
+    // ============================================
     match /salesStaff/{staffId} {
-      // 管理者のみアクセス可能
+      // 管理者のみ全アクセス可能
       allow read, write: if isAdmin();
     }
 
-    // 商品マスタ
+    // ============================================
+    // 商品マスタ (products)
+    // ============================================
     match /products/{productId} {
-      // 一時的に認証ユーザーは全て読み取り可能（アプリ側でフィルタリング）
-      allow read: if isAuthenticated();
-      allow create: if isAdmin();
-      // 発注回数の更新は認証ユーザーも可能
-      allow update: if isAuthenticated();
-      allow delete: if isAdmin();
+      // 読み取り: 管理者は全て、一般ユーザーは自分の得意先の商品のみ
+      allow read: if isAdmin() || (
+        isAuthenticated() &&
+        existingData().customerId == getCustomerId()
+      );
+
+      // 作成・削除: 管理者のみ
+      allow create, delete: if isAdmin();
+
+      // 更新: 管理者は全て、一般ユーザーは自分の得意先の商品かつ特定フィールドのみ
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        existingData().customerId == getCustomerId() &&
+        // 更新可能なフィールドを限定（発注回数のみ）
+        incomingData().keys().hasAll(existingData().keys()) &&
+        incomingData().customerId == existingData().customerId &&
+        incomingData().workCode == existingData().workCode &&
+        incomingData().name == existingData().name &&
+        incomingData().specification == existingData().specification &&
+        incomingData().origin == existingData().origin &&
+        incomingData().unitPrice == existingData().unitPrice &&
+        incomingData().minDeliveryDays == existingData().minDeliveryDays &&
+        incomingData().isActive == existingData().isActive
+      );
     }
 
-    // 発注データ
+    // ============================================
+    // 発注データ (orders)
+    // ============================================
     match /orders/{orderId} {
-      // 一時的に認証ユーザーは全て読み取り可能（アプリ側でフィルタリング）
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      // 更新は認証ユーザーも可能
-      allow update: if isAuthenticated();
+      // 読み取り: 管理者は全て、一般ユーザーは自分の発注のみ
+      allow read: if isAdmin() || (
+        isAuthenticated() &&
+        existingData().customerId == getCustomerId()
+      );
+
+      // 作成: 認証済みユーザーは自分の得意先IDで作成可能
+      allow create: if isAuthenticated() &&
+        incomingData().customerId == getCustomerId() &&
+        incomingData().userId == request.auth.uid &&
+        // 必須フィールドの存在確認
+        incomingData().keys().hasAll(['customerId', 'userId', 'items', 'totalAmount', 'status', 'createdAt']) &&
+        // ステータスは「pending」でなければならない
+        incomingData().status == 'pending' &&
+        // 作成日時は現在時刻でなければならない
+        incomingData().createdAt == request.time;
+
+      // 更新: 管理者は全て、一般ユーザーは自分の発注かつステータス更新のみ
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        existingData().customerId == getCustomerId() &&
+        // ステータスのみ変更可能
+        incomingData().customerId == existingData().customerId &&
+        incomingData().userId == existingData().userId &&
+        incomingData().items == existingData().items &&
+        incomingData().totalAmount == existingData().totalAmount &&
+        incomingData().createdAt == existingData().createdAt
+      );
+
+      // 削除: 管理者のみ
       allow delete: if isAdmin();
     }
 
-    // 通知データ
+    // ============================================
+    // 通知データ (notifications)
+    // ============================================
     match /notifications/{notificationId} {
-      // 管理者は全アクセス可能
+      // 読み取り: 管理者のみ
+      allow read: if isAdmin();
+
+      // 作成: 認証済みユーザー（発注時に自動作成）
+      allow create: if isAuthenticated();
+
+      // 更新・削除: 管理者のみ
+      allow update, delete: if isAdmin();
+    }
+
+    // ============================================
+    // バッチ処理履歴 (batchLogs) - 将来の拡張用
+    // ============================================
+    match /batchLogs/{logId} {
+      // 管理者のみ全アクセス可能
       allow read, write: if isAdmin();
-      // Cloud Functions のみが作成可能（通常はサーバー側で処理）
-      allow create: if isAdmin();
+    }
+
+    // ============================================
+    // デフォルトルール: 全て拒否
+    // ============================================
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

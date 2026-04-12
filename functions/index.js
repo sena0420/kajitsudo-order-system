@@ -306,3 +306,182 @@ exports.getBatchLogs = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', 'ログの取得に失敗しました');
   }
 });
+
+// ============================================
+// Custom Claims 管理機能
+// ============================================
+
+// 全ユーザー一覧取得（Custom Claims付き）
+exports.listUsers = functions.https.onCall(async (data, context) => {
+  // 管理者権限チェック
+  if (!context.auth || !context.auth.token.admin) {
+    throw new functions.https.HttpsError('permission-denied', '管理者権限が必要です');
+  }
+
+  const { maxResults = 1000 } = data;
+
+  try {
+    const listUsersResult = await admin.auth().listUsers(maxResults);
+
+    const users = listUsersResult.users.map(userRecord => ({
+      uid: userRecord.uid,
+      email: userRecord.email,
+      displayName: userRecord.displayName,
+      disabled: userRecord.disabled,
+      customClaims: userRecord.customClaims || {},
+      metadata: {
+        creationTime: userRecord.metadata.creationTime,
+        lastSignInTime: userRecord.metadata.lastSignInTime
+      }
+    }));
+
+    return { users, success: true };
+  } catch (error) {
+    console.error('ユーザー一覧取得エラー:', error);
+    throw new functions.https.HttpsError('internal', 'ユーザー一覧の取得に失敗しました');
+  }
+});
+
+// Custom Claims設定
+exports.setUserClaims = functions.https.onCall(async (data, context) => {
+  // 管理者権限チェック
+  if (!context.auth || !context.auth.token.admin) {
+    throw new functions.https.HttpsError('permission-denied', '管理者権限が必要です');
+  }
+
+  const { uid, customClaims } = data;
+
+  // 入力バリデーション
+  if (!uid) {
+    throw new functions.https.HttpsError('invalid-argument', 'ユーザーIDが必要です');
+  }
+
+  if (!customClaims || typeof customClaims !== 'object') {
+    throw new functions.https.HttpsError('invalid-argument', 'Custom Claimsが不正です');
+  }
+
+  try {
+    // Custom Claimsを設定
+    await admin.auth().setCustomUserClaims(uid, customClaims);
+
+    // ログを記録
+    await admin.firestore().collection('customClaimsLogs').add({
+      uid,
+      customClaims,
+      updatedBy: context.auth.uid,
+      updatedByEmail: context.auth.token.email,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log(`Custom Claims設定完了: ${uid}`, customClaims);
+
+    return {
+      success: true,
+      message: 'Custom Claimsを設定しました。ユーザーは再ログインが必要です。'
+    };
+  } catch (error) {
+    console.error('Custom Claims設定エラー:', error);
+    throw new functions.https.HttpsError('internal', 'Custom Claimsの設定に失敗しました: ' + error.message);
+  }
+});
+
+// 特定ユーザーのCustom Claims取得
+exports.getUserClaims = functions.https.onCall(async (data, context) => {
+  // 管理者権限チェック
+  if (!context.auth || !context.auth.token.admin) {
+    throw new functions.https.HttpsError('permission-denied', '管理者権限が必要です');
+  }
+
+  const { uid } = data;
+
+  if (!uid) {
+    throw new functions.https.HttpsError('invalid-argument', 'ユーザーIDが必要です');
+  }
+
+  try {
+    const userRecord = await admin.auth().getUser(uid);
+
+    return {
+      uid: userRecord.uid,
+      email: userRecord.email,
+      customClaims: userRecord.customClaims || {},
+      success: true
+    };
+  } catch (error) {
+    console.error('Custom Claims取得エラー:', error);
+    throw new functions.https.HttpsError('internal', 'Custom Claimsの取得に失敗しました');
+  }
+});
+
+// Custom Claims一括設定（顧客マスタと連携）
+exports.syncCustomerClaims = functions.https.onCall(async (data, context) => {
+  // 管理者権限チェック
+  if (!context.auth || !context.auth.token.admin) {
+    throw new functions.https.HttpsError('permission-denied', '管理者権限が必要です');
+  }
+
+  try {
+    // 全ユーザー取得
+    const listUsersResult = await admin.auth().listUsers(1000);
+
+    // 全顧客マスタ取得
+    const customersSnapshot = await admin.firestore().collection('customers').get();
+    const customers = {};
+    customersSnapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.email) {
+        customers[data.email] = doc.id; // email -> customerId のマップ
+      }
+    });
+
+    const results = {
+      success: 0,
+      errors: [],
+      total: listUsersResult.users.length
+    };
+
+    // 各ユーザーのCustom Claimsを設定
+    for (const userRecord of listUsersResult.users) {
+      try {
+        const email = userRecord.email;
+        const customerId = customers[email];
+
+        if (customerId) {
+          // 顧客マスタにメールが存在する場合、customerIdを設定
+          await admin.auth().setCustomUserClaims(userRecord.uid, {
+            admin: false,
+            customerId: customerId
+          });
+          results.success++;
+          console.log(`Custom Claims設定完了: ${email} -> ${customerId}`);
+        } else {
+          // 顧客マスタに存在しない場合はスキップ（管理者の可能性）
+          console.log(`スキップ: ${email} (顧客マスタに存在しません)`);
+        }
+      } catch (error) {
+        results.errors.push({
+          email: userRecord.email,
+          error: error.message
+        });
+      }
+    }
+
+    // ログを記録
+    await admin.firestore().collection('customClaimsLogs').add({
+      type: 'bulk_sync',
+      results,
+      syncedBy: context.auth.uid,
+      syncedByEmail: context.auth.token.email,
+      syncedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return {
+      success: true,
+      results,
+      message: `${results.success}件のCustom Claimsを設定しました`
+    };
+  } catch (error) {
+    console.error('一括同期エラー:', error);
+    throw new functions.https.HttpsError('internal', '一括同期に失敗しました: ' + error.message);
+  }
+});
