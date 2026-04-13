@@ -30,10 +30,16 @@ import { useProducts } from '../hooks/useProducts';
 import { useOrders } from '../hooks/useOrders';
 import { orderService } from '../firebase/services';
 import { sendOrderNotification, sendUrgentNotification } from '../utils/notifications';
+import { useAuth } from '../contexts/AuthContext';
 
 const OrderPage = ({ user }) => {
+  const { deliveryLocations } = useAuth();
   const { products, loading, error, incrementOrderCount } = useProducts(user.customerId, user.deliveryLocationId);
   const { addOrder } = useOrders(user.customerId, user.deliveryLocationId);
+
+  // 現在の納品先の納品不可日を取得
+  const currentLocation = deliveryLocations.find(loc => loc.id === user.deliveryLocationId);
+  const unavailableDates = currentLocation?.unavailableDates || [];
   const [cart, setCart] = useState({});
   const [weeklyCart, setWeeklyCart] = useState({}); // 週間発注用カート
   const [deliveryDates, setDeliveryDates] = useState({}); // 商品ごとの配送日設定
@@ -153,12 +159,19 @@ const OrderPage = ({ user }) => {
     setDeliveryDates(prev => ({ ...prev, [productId]: date }));
   };
 
-  // 日付が最短リードタイムを満たしているかチェック
+  // 日付が納品不可日かどうかをチェック
+  const isUnavailableDate = (date) => {
+    return unavailableDates.includes(date);
+  };
+
+  // 日付が最短リードタイムを満たし、かつ納品不可日でないかチェック
   const isDateValid = (date, minDays) => {
     const selectedDate = new Date(date);
     const minDate = new Date();
     minDate.setDate(minDate.getDate() + minDays);
-    return selectedDate >= minDate;
+    const meetsMinDelivery = selectedDate >= minDate;
+    const notUnavailable = !isUnavailableDate(date);
+    return meetsMinDelivery && notUnavailable;
   };
 
   const handleOrder = () => {
@@ -168,10 +181,17 @@ const OrderPage = ({ user }) => {
   const confirmOrder = async () => {
     try {
       setOrderLoading(true);
-      
+
       // 通常発注と週間発注の両方のアイテムを統合
       const normalItems = Object.entries(cart).map(([productId, quantity]) => {
         const product = products.find(p => p.id === productId);
+        const deliveryDate = getProductDeliveryDate(productId, product.minDeliveryDays);
+
+        // 納品不可日のバリデーション
+        if (isUnavailableDate(deliveryDate)) {
+          throw new Error(`${product.name}の配送日が納品不可日です。別の日付を選択してください。`);
+        }
+
         return {
           productId,
           workCode: product.workCode,
@@ -182,7 +202,7 @@ const OrderPage = ({ user }) => {
           unitPrice: product.unitPrice,
           subtotal: product.unitPrice * quantity,
           orderType: 'normal',
-          deliveryDate: getProductDeliveryDate(productId, product.minDeliveryDays)
+          deliveryDate: deliveryDate
         };
       });
 
@@ -396,6 +416,22 @@ const OrderPage = ({ user }) => {
                     }}
                     sx={{ mt: 0.5 }}
                   />
+                  {/* 納品不可日の警告 */}
+                  {isUnavailableDate(getProductDeliveryDate(product.id, product.minDeliveryDays)) && (
+                    <Typography variant="caption" color="error" display="block" sx={{ mt: 0.5 }}>
+                      ⚠️ この日付は納品不可日です。別の日付を選択してください。
+                    </Typography>
+                  )}
+                  {/* 納品不可日のリスト表示 */}
+                  {unavailableDates.length > 0 && (
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                      納品不可日: {unavailableDates.slice(0, 3).map(d => {
+                        const date = new Date(d + 'T00:00:00');
+                        return `${date.getMonth() + 1}/${date.getDate()}`;
+                      }).join(', ')}
+                      {unavailableDates.length > 3 && ` 他${unavailableDates.length - 3}件`}
+                    </Typography>
+                  )}
                 </Box>
 
                 <Box mt={2}>

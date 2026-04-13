@@ -57,8 +57,11 @@ import RadioGroup from '@mui/material/RadioGroup';
 import { generateCustomerPassword } from '../utils/passwordGenerator';
 import { formatCsvCodes, validateCustomerCode, validateWorkCode, generateNextWorkCode, formatCustomerCode, formatWorkCode } from '../utils/codeFormatter';
 import * as XLSX from 'xlsx';
+<<<<<<< HEAD
 import UserManagementTab from './UserManagementTab';
+=======
 import { useAuth } from '../contexts/AuthContext';
+>>>>>>> origin/main
 // Firebase Functions インポートをコンポーネント内に移動
 
 const AdminPage = ({ user }) => {
@@ -1231,8 +1234,11 @@ const AdminPage = ({ user }) => {
           <Tab label="一括更新" />
           <Tab label="手動管理" />
           <Tab label="実行履歴" />
-          <Tab label="納品先管理" />
+<<<<<<< HEAD
           <Tab label="ユーザー管理" />
+=======
+          <Tab label="納品先管理" />
+>>>>>>> origin/main
         </Tabs>
 
         {/* 一括更新タブ */}
@@ -2502,7 +2508,7 @@ const AdminPage = ({ user }) => {
       </Dialog>
 
       {/* ユーザー管理タブ */}
-      {currentTab === 4 && (
+      {currentTab === 3 && (
         <UserManagementTab />
       )}
 

@@ -28,6 +28,7 @@
   contactPerson: "山田花子", // 担当者名（オプション）
   notes: "", // 備考（オプション）
   displayOrder: 1, // 表示順序（オプション）
+  unavailableDates: ["2025-01-15", "2025-01-20", "2025-02-11"], // 納品不可日の配列（YYYY-MM-DD形式、オプション）
   isActive: true,
   createdAt: Timestamp,
   updatedAt: Timestamp

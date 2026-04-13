@@ -4,7 +4,8 @@
       "Bash(npm install:*)",
       "Bash(npm start)",
       "Bash(npx react-scripts:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(powershell:*)"
     ],
     "deny": [],
     "ask": []
