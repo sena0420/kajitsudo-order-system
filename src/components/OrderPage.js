@@ -28,7 +28,6 @@ import {
 import { Add, Remove, ShoppingCart } from '@mui/icons-material';
 import { useProducts } from '../hooks/useProducts';
 import { useOrders } from '../hooks/useOrders';
-import { orderService } from '../firebase/services';
 import { sendOrderNotification, sendUrgentNotification } from '../utils/notifications';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -131,12 +130,6 @@ const OrderPage = ({ user }) => {
     }, 0);
 
     return normalTotal + weeklyTotal;
-  };
-
-  const getDeliveryDate = (minDays) => {
-    const date = new Date();
-    date.setDate(date.getDate() + minDays + 7); // 最短納期 + 7日
-    return date.toLocaleDateString('ja-JP');
   };
 
   // 最短配送日を取得（ローカル日付ベースで計算し、タイムゾーンズレを防ぐ）

@@ -52,8 +52,6 @@ import {
   CheckCircle,
   Remove
 } from '@mui/icons-material';
-import Radio from '@mui/material/Radio';
-import RadioGroup from '@mui/material/RadioGroup';
 import { generateCustomerPassword } from '../utils/passwordGenerator';
 import { formatCsvCodes, validateCustomerCode, validateWorkCode, generateNextWorkCode, formatCustomerCode, formatWorkCode } from '../utils/codeFormatter';
 import * as XLSX from 'xlsx';
@@ -119,16 +117,6 @@ const AdminPage = ({ user }) => {
   const [statusChangeDialogOpen, setStatusChangeDialogOpen] = useState(false);
   const [statusChangeTarget, setStatusChangeTarget] = useState(null); // { type: 'customer'/'product', id, currentStatus, name }
 
-  // ユーザー管理用の状態
-  const [users, setUsers] = useState([]);
-  const [usersLoading, setUsersLoading] = useState(false);
-  const [claimsDialogOpen, setClaimsDialogOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [claimsForm, setClaimsForm] = useState({
-    admin: false,
-    customerId: ''
-  });
-
   const [customerForm, setCustomerForm] = useState({
     customerId: '',
     customerName: '',
@@ -150,13 +138,12 @@ const AdminPage = ({ user }) => {
   });
 
   // エクスポート用の状態
-  const [exportFilter, setExportFilter] = useState({
+  const [exportFilter] = useState({
     startDate: '',
     endDate: '',
     customerId: '',
     status: 'all'
   });
-  const [exportFormat, setExportFormat] = useState('csv'); // 'csv' or 'excel'
   const [selectedColumns, setSelectedColumns] = useState(['workCode', 'deliveryDate', 'quantity', 'directShipCode']);
   const [columnDialogOpen, setColumnDialogOpen] = useState(false);
 
@@ -1031,7 +1018,8 @@ const AdminPage = ({ user }) => {
     });
   };
 
-  // CSVエクスポート
+  // CSVエクスポート（将来的にOrderManagementPageで使用予定）
+  // eslint-disable-next-line no-unused-vars
   const handleExportCSV = () => {
     const orders = getFilteredOrders();
 
@@ -1094,7 +1082,8 @@ const AdminPage = ({ user }) => {
     }
   };
 
-  // Excelエクスポート
+  // Excelエクスポート（将来的にOrderManagementPageで使用予定）
+  // eslint-disable-next-line no-unused-vars
   const handleExportExcel = () => {
     const orders = getFilteredOrders();
 
