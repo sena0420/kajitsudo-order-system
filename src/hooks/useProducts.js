@@ -8,7 +8,10 @@ export const useProducts = (customerId, deliveryLocationId = null) => {
 
   // 商品データの取得
   const fetchProducts = async () => {
-    if (!customerId) return;
+    if (!customerId) {
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);

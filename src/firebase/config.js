@@ -3,6 +3,7 @@ const DEMO_MODE = !process.env.REACT_APP_FIREBASE_API_KEY;
 
 let auth = null;
 let db = null;
+let storage = null;
 let functions = null;
 let app = null;
 
@@ -11,6 +12,7 @@ if (!DEMO_MODE) {
   const { initializeApp } = require('firebase/app');
   const { getAuth } = require('firebase/auth');
   const { getFirestore } = require('firebase/firestore');
+  const { getStorage } = require('firebase/storage');
   const { getFunctions, connectFunctionsEmulator } = require('firebase/functions');
 
   const firebaseConfig = {
@@ -27,6 +29,7 @@ if (!DEMO_MODE) {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  storage = getStorage(app);
   functions = getFunctions(app);
 
   // 開発環境でFunctionsエミュレータを使用する場合
@@ -38,5 +41,5 @@ if (!DEMO_MODE) {
 }
 
 // Firebase サービスのエクスポート
-export { auth, db, functions };
+export { auth, db, storage, functions };
 export default app;

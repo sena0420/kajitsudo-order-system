@@ -19,6 +19,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deliveryLocations, setDeliveryLocations] = useState([]);
+  const [allCustomers, setAllCustomers] = useState([]);
 
   useEffect(() => {
     if (isFirebaseAvailable) {
@@ -92,6 +93,13 @@ export const AuthProvider = ({ children }) => {
                 salesStaffId: null,
                 isAdmin: true
               });
+              // 全顧客リストを取得
+              const allCustomersSnapshot = await getDocs(collection(db, 'customers'));
+              const allCustomersData = allCustomersSnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+              }));
+              setAllCustomers(allCustomersData);
             } else {
               // 顧客情報が見つからない場合はエラー
               console.error('顧客情報が見つかりません:', firebaseUser.email);
@@ -130,6 +138,12 @@ export const AuthProvider = ({ children }) => {
           isActive: true,
           unavailableDates: ['2025-10-18', '2025-10-22'] // デモ用納品不可日
         }
+      ]);
+      // デモ用の全顧客データ
+      setAllCustomers([
+        { id: 'CUST001', name: '〇〇スーパー', salesStaffId: 'STAFF001' },
+        { id: 'CUST002', name: '△△マート', salesStaffId: 'STAFF001' },
+        { id: 'CUST003', name: '□□フーズ', salesStaffId: 'STAFF002' }
       ]);
       setLoading(false);
     }
@@ -238,7 +252,8 @@ export const AuthProvider = ({ children }) => {
     error,
     setError,
     deliveryLocations,
-    setDeliveryLocation
+    setDeliveryLocation,
+    allCustomers
   };
 
   return (

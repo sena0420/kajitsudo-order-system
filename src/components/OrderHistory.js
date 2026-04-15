@@ -18,12 +18,13 @@ import {
   CircularProgress,
   Alert,
   Button,
-  TextField,
   IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
 import {
   ExpandMore,
@@ -37,6 +38,8 @@ import { useOrders } from '../hooks/useOrders';
 import { useProducts } from '../hooks/useProducts';
 
 const OrderHistory = ({ user }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { orders, loading, error, updateOrderItems } = useOrders(user.customerId, user.deliveryLocationId);
   const { products } = useProducts(user.customerId, user.deliveryLocationId);
   const [editingOrder, setEditingOrder] = useState(null);
@@ -232,8 +235,8 @@ const OrderHistory = ({ user }) => {
               </AccordionSummary>
               <AccordionDetails>
                 <Box width="100%">
-                  <TableContainer component={Paper}>
-                    <Table size="small">
+                  <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+                    <Table size="small" sx={{ minWidth: 520 }}>
                       <TableHead>
                         <TableRow>
                           <TableCell>作業コード</TableCell>
@@ -345,7 +348,7 @@ const OrderHistory = ({ user }) => {
       )}
 
       {/* 変更確認ダイアログ */}
-      <Dialog open={confirmDialog} onClose={() => setConfirmDialog(false)}>
+      <Dialog open={confirmDialog} onClose={() => setConfirmDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle>数量変更の確認</DialogTitle>
         <DialogContent>
           <Typography>
@@ -355,11 +358,11 @@ const OrderHistory = ({ user }) => {
             変更後、ステータスは「変更処理待ち」になります。
           </Typography>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDialog(false)}>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button onClick={() => setConfirmDialog(false)} fullWidth={isMobile} variant="outlined">
             キャンセル
           </Button>
-          <Button onClick={handleSaveChanges} variant="contained" color="primary">
+          <Button onClick={handleSaveChanges} variant="contained" color="primary" fullWidth={isMobile}>
             確定
           </Button>
         </DialogActions>

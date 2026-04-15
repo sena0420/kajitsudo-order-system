@@ -388,3 +388,118 @@ const saveUnavailableDates = async (locationId, dates) => {
 **変更ファイル数**: 3ファイル
 **追加行数**: 約200行
 **コミット**: 未実施（次回実施予定）
+
+---
+
+## 2026年4月15日: 管理者向け表示改善・不良報告機能・レスポンシブ対応
+
+### 実装した機能
+
+#### 1. 管理者ログイン時のローディングバグ修正
+
+**問題**: 管理者アカウント（`customerId: null`）でログインすると、発注タブ・履歴タブが「読み込み中」のまま解消されないバグ。
+
+**原因**: `useProducts` / `useOrders` の両フックで `if (!customerId) return;` が `loading` を `false` にせず早期リターンしていたため。
+
+**修正ファイル**:
+- `src/hooks/useProducts.js` — `customerId` が null の場合は `setLoading(false)` してから return
+- `src/hooks/useOrders.js` — 同上
+
+#### 2. 管理者向け商品一覧・発注履歴ビュー（AdminOrderPage / AdminOrderHistory）
+
+管理者ログイン時に全顧客の商品・履歴を顧客ごとの見出し付きで表示する新コンポーネントを追加。
+
+**追加ファイル**:
+- `src/components/AdminOrderPage.js`
+- `src/components/AdminOrderHistory.js`
+
+**変更ファイル**:
+- `src/contexts/AuthContext.js` — `allCustomers` ステートを追加。デモモードでは3社（〇〇スーパー・△△マート・□□フーズ）を設定。Firebase モードでは `customers` コレクションを全件取得。
+- `src/App.js` — 発注タブ・履歴タブで管理者の場合は Admin 専用コンポーネントを表示。
+
+**AdminOrderPage の特徴**:
+- 顧客ごとにアコーディオンセクションを作成
+- 各セクションに商品数チップを表示
+- 商品カードは発注回数・単価・規格・産地を表示（管理者は発注操作不要のため閲覧専用）
+- 顧客を横断した商品状況の把握が可能
+
+**AdminOrderHistory の特徴**:
+- 顧客ごとにアコーディオンセクションを作成
+- 未処理件数チップで優先対応が必要な顧客を一目で把握
+- 発注ごとのステータスチップと詳細テーブル表示
+- 管理者による数量変更操作にも対応
+
+#### 3. 不良報告機能（DefectReportPage）
+
+顧客が品質不良を報告できる新タブを追加。
+
+**追加ファイル**:
+- `src/components/DefectReportPage.js`
+
+**変更ファイル**:
+- `src/firebase/config.js` — Firebase Storage を追加（`storage` エクスポート）
+- `src/App.js` — 顧客向けナビに「不良報告」タブを追加
+
+**機能概要**:
+- `status: 'confirmed'`（納品済み）の発注のみ一覧表示（アコーディオン形式）
+- 各商品行の「報告する」ボタンからダイアログを起動
+- ダイアログで不良数量（必須）・メモ（任意）・画像添付（任意・最大5枚）を入力
+- 画像はアップロード前のプレビュー表示・個別削除に対応
+- Firebase モード: Firestore `defectReports` コレクションに保存、Storage に画像アップロード（進捗バー付き）
+- デモモード: localStorage に保存
+- ページ下部に送信済み報告の一覧表示（ステータス: 受付済み / 対応中 / 解決済み）
+- 入力バリデーション: 数量が 1〜発注数量 の範囲かチェック
+
+#### 4. レスポンシブデザイン全体見直し
+
+アプリ全体をスマートフォン・タブレットで快適に利用できるよう改善。
+
+**変更ファイル**:
+- `src/App.js`
+- `src/components/OrderPage.js`
+- `src/components/OrderHistory.js`
+- `src/components/DefectReportPage.js`
+- `src/components/AdminOrderHistory.js`
+
+**主な改善内容**:
+
+| コンポーネント | 問題 | 対処 |
+|---|---|---|
+| App.js ナビゲーション | モバイルでボタンが多くタイトルが潰れる | スマホ（xs）ではアイコンのみ表示。全ナビボタンにアイコンを追加 |
+| OrderPage.js 週間発注 | 7列テーブルがスクロール可能と分かりにくい | スワイプヒント文言を表示、`overflowX: auto` を明示 |
+| OrderPage.js 発注確認ダイアログ | モバイルで操作しにくい | スマホ時にフルスクリーン表示、ボタンを全幅に |
+| DefectReportPage.js ダイアログ | 画像アップロードフォームが狭い | スマホ時にフルスクリーン表示、ボタン縦並び全幅 |
+| OrderHistory.js | 7列テーブルのスクロールが非明示 | `minWidth: 520` + `overflowX: auto` 追加 |
+| AdminOrderHistory.js | テーブル + ダイアログの問題 | テーブルに `minWidth: 520`、ダイアログをモバイル全幅対応 |
+
+追加したナビゲーションアイコン:
+- 発注: ShoppingCartIcon
+- 履歴: HistoryIcon
+- 不良報告: ReportProblemIcon
+- マスタ管理: SettingsIcon
+- 受注管理: AssignmentIcon
+
+### 変更ファイル一覧
+
+**バグ修正**:
+- `src/hooks/useProducts.js`
+- `src/hooks/useOrders.js`
+
+**新規追加**:
+- `src/components/AdminOrderPage.js`
+- `src/components/AdminOrderHistory.js`
+- `src/components/DefectReportPage.js`
+
+**既存ファイルの更新**:
+- `src/firebase/config.js` — Firebase Storage 追加
+- `src/contexts/AuthContext.js` — `allCustomers` ステート追加
+- `src/App.js` — 管理者用コンポーネント切替・不良報告タブ・アイコン対応ナビ
+- `src/components/OrderPage.js` — モバイル対応強化
+- `src/components/OrderHistory.js` — 未使用import削除・モバイル対応
+- `src/components/AdminOrderHistory.js` — モバイル対応強化
+
+---
+
+**記録作成日**: 2026年4月15日
+**実装者**: Claude Code
+**変更ファイル数**: 11ファイル（新規3・修正8）

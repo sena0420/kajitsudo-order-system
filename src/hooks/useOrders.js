@@ -36,7 +36,10 @@ export const useOrders = (customerId, deliveryLocationId = null) => {
 
   // 発注履歴の取得
   const fetchOrders = async () => {
-    if (!customerId) return;
+    if (!customerId) {
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);

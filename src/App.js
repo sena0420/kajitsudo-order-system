@@ -13,13 +13,21 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import LogoutIcon from '@mui/icons-material/Logout';
+import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
+import HistoryIcon from '@mui/icons-material/History';
+import ReportProblemIcon from '@mui/icons-material/ReportProblem';
+import SettingsIcon from '@mui/icons-material/Settings';
+import AssignmentIcon from '@mui/icons-material/Assignment';
 // Router components will be used in future versions
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './components/LoginPage';
 import OrderPage from './components/OrderPage';
 import OrderHistory from './components/OrderHistory';
 import AdminPage from './components/AdminPage';
+import AdminOrderPage from './components/AdminOrderPage';
+import AdminOrderHistory from './components/AdminOrderHistory';
 import OrderManagementPage from './components/OrderManagementPage';
+import DefectReportPage from './components/DefectReportPage';
 import DeliveryLocationSelector from './components/DeliveryLocationSelector';
 
 const theme = createTheme({
@@ -158,83 +166,98 @@ const AppContent = () => {
             発注システム - {user.customerName}
             {user.deliveryLocationName && ` / ${user.deliveryLocationName}`}
           </Typography>
+          {/* ── 発注 ── */}
           <Button
             color="inherit"
             onClick={() => setCurrentPage('order')}
             sx={{
-              mr: { xs: 0.5, sm: 2 },
-              minWidth: { xs: '60px', sm: 'auto' },
-              fontSize: { xs: '1.1rem', sm: '0.875rem' },
+              mr: { xs: 0.5, sm: 1 },
+              minWidth: { xs: '44px', sm: 'auto' },
+              px: { xs: 0.5, sm: 1.5 },
               backgroundColor: currentPage === 'order' ? 'rgba(255,255,255,0.1)' : 'transparent'
             }}
           >
-            発注
+            <ShoppingCartIcon sx={{ display: { xs: 'block', sm: 'none' } }} />
+            <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>発注</Box>
           </Button>
+
+          {/* ── 履歴 ── */}
           <Button
             color="inherit"
             onClick={() => setCurrentPage('history')}
             sx={{
-              mr: { xs: 0.5, sm: 2 },
-              minWidth: { xs: '60px', sm: 'auto' },
-              fontSize: { xs: '1.1rem', sm: '0.875rem' },
+              mr: { xs: 0.5, sm: 1 },
+              minWidth: { xs: '44px', sm: 'auto' },
+              px: { xs: 0.5, sm: 1.5 },
               backgroundColor: currentPage === 'history' ? 'rgba(255,255,255,0.1)' : 'transparent'
             }}
           >
-            履歴
+            <HistoryIcon sx={{ display: { xs: 'block', sm: 'none' } }} />
+            <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>履歴</Box>
           </Button>
+
+          {/* ── 不良報告（顧客のみ） ── */}
+          {!user.isAdmin && (
+            <Button
+              color="inherit"
+              onClick={() => setCurrentPage('defect')}
+              sx={{
+                mr: { xs: 0.5, sm: 1 },
+                minWidth: { xs: '44px', sm: 'auto' },
+                px: { xs: 0.5, sm: 1.5 },
+                backgroundColor: currentPage === 'defect' ? 'rgba(255,255,255,0.1)' : 'transparent'
+              }}
+            >
+              <ReportProblemIcon sx={{ display: { xs: 'block', sm: 'none' } }} />
+              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>不良報告</Box>
+            </Button>
+          )}
+
+          {/* ── 納品先変更（顧客・複数納品先のみ） ── */}
           {!user.isAdmin && deliveryLocations.length > 1 && (
             <Button
               color="inherit"
               onClick={handleChangeDeliveryLocation}
               sx={{
-                mr: { xs: 0.5, sm: 2 },
-                minWidth: { xs: '48px', sm: 'auto' },
-                fontSize: { xs: '0.8rem', sm: '0.875rem' },
-                backgroundColor: 'transparent',
-                px: { xs: 1, sm: 2 }
+                mr: { xs: 0.5, sm: 1 },
+                minWidth: { xs: '44px', sm: 'auto' },
+                px: { xs: 0.5, sm: 1.5 },
+                backgroundColor: 'transparent'
               }}
             >
-              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                納品先変更
-              </Box>
-              <ArrowBackIcon sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '1.5rem' }} />
+              <ArrowBackIcon sx={{ display: { xs: 'block', sm: 'none' } }} />
+              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>納品先変更</Box>
             </Button>
           )}
+
+          {/* ── 管理者専用メニュー ── */}
           {user.isAdmin && (
             <>
               <Button
                 color="inherit"
                 onClick={() => setCurrentPage('master')}
                 sx={{
-                  mr: { xs: 0.5, sm: 2 },
-                  minWidth: { xs: '70px', sm: 'auto' },
-                  fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                  mr: { xs: 0.5, sm: 1 },
+                  minWidth: { xs: '44px', sm: 'auto' },
+                  px: { xs: 0.5, sm: 1.5 },
                   backgroundColor: currentPage === 'master' ? 'rgba(255,255,255,0.1)' : 'transparent'
                 }}
               >
-                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                  マスタ管理
-                </Box>
-                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>
-                  マスタ
-                </Box>
+                <SettingsIcon sx={{ display: { xs: 'block', sm: 'none' } }} />
+                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>マスタ管理</Box>
               </Button>
               <Button
                 color="inherit"
                 onClick={() => setCurrentPage('orders')}
                 sx={{
-                  mr: { xs: 0.5, sm: 2 },
-                  minWidth: { xs: '70px', sm: 'auto' },
-                  fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                  mr: { xs: 0.5, sm: 1 },
+                  minWidth: { xs: '44px', sm: 'auto' },
+                  px: { xs: 0.5, sm: 1.5 },
                   backgroundColor: currentPage === 'orders' ? 'rgba(255,255,255,0.1)' : 'transparent'
                 }}
               >
-                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                  受注管理
-                </Box>
-                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>
-                  受注
-                </Box>
+                <AssignmentIcon sx={{ display: { xs: 'block', sm: 'none' } }} />
+                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>受注管理</Box>
               </Button>
             </>
           )}
@@ -264,8 +287,9 @@ const AppContent = () => {
           px: { xs: 1, sm: 2 } 
         }}
       >
-        {currentPage === 'order' && <OrderPage user={user} />}
-        {currentPage === 'history' && <OrderHistory user={user} />}
+        {currentPage === 'order' && (user.isAdmin ? <AdminOrderPage /> : <OrderPage user={user} />)}
+        {currentPage === 'history' && (user.isAdmin ? <AdminOrderHistory /> : <OrderHistory user={user} />)}
+        {currentPage === 'defect' && !user.isAdmin && <DefectReportPage user={user} />}
         {currentPage === 'master' && user.isAdmin && <AdminPage user={user} />}
         {currentPage === 'orders' && user.isAdmin && <OrderManagementPage user={user} />}
       </Container>

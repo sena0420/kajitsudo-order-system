@@ -23,15 +23,19 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper
+  Paper,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
-import { Add, Remove, ShoppingCart } from '@mui/icons-material';
+import { Add, Remove, ShoppingCart, SwipeRounded } from '@mui/icons-material';
 import { useProducts } from '../hooks/useProducts';
 import { useOrders } from '../hooks/useOrders';
 import { sendOrderNotification, sendUrgentNotification } from '../utils/notifications';
 import { useAuth } from '../contexts/AuthContext';
 
 const OrderPage = ({ user }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { deliveryLocations } = useAuth();
   const { products, loading, error, incrementOrderCount } = useProducts(user.customerId, user.deliveryLocationId);
   const { addOrder } = useOrders(user.customerId, user.deliveryLocationId);
@@ -571,7 +575,15 @@ const OrderPage = ({ user }) => {
                   </Box>
 
                   {/* 週間カレンダー入力 */}
-                  <TableContainer component={Paper} variant="outlined">
+                  {isMobile && (
+                    <Box display="flex" alignItems="center" gap={0.5} mb={0.5}>
+                      <SwipeRounded sx={{ fontSize: '1rem', color: 'text.secondary' }} />
+                      <Typography variant="caption" color="textSecondary">
+                        左右にスクロールして日付を確認できます
+                      </Typography>
+                    </Box>
+                  )}
+                  <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
                     <Table size="small">
                       <TableHead>
                         <TableRow>
@@ -727,35 +739,47 @@ const OrderPage = ({ user }) => {
         </Box>
       )}
 
-      <Dialog open={orderConfirm} onClose={() => setOrderConfirm(false)}>
+      <Dialog
+        open={orderConfirm}
+        onClose={() => setOrderConfirm(false)}
+        fullScreen={isMobile}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>発注確認</DialogTitle>
-        <DialogContent>
+        <DialogContent dividers>
           <Typography gutterBottom>以下の内容で発注しますか？</Typography>
           {Object.entries(cart).map(([productId, quantity]) => {
             const product = products.find(p => p.id === productId);
             return (
-              <Box key={productId} display="flex" justifyContent="space-between" py={1}>
-                <Typography>{product.name} ({product.specification})</Typography>
-                <Typography>
+              <Box key={productId} py={1} borderBottom={1} borderColor="divider">
+                <Typography variant="body2" fontWeight="bold">{product.name} ({product.specification})</Typography>
+                <Typography variant="body2" color="textSecondary">
                   {quantity}個 × ¥{product.unitPrice.toLocaleString()} = ¥{(quantity * product.unitPrice).toLocaleString()}
                 </Typography>
               </Box>
             );
           })}
-          <Box borderTop={1} borderColor="divider" pt={1} mt={1}>
+          <Box pt={2}>
             <Typography variant="h6">
               合計: ¥{getTotalAmount().toLocaleString()}
             </Typography>
           </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOrderConfirm(false)} disabled={orderLoading}>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            onClick={() => setOrderConfirm(false)}
+            disabled={orderLoading}
+            fullWidth={isMobile}
+            variant="outlined"
+          >
             キャンセル
           </Button>
-          <Button 
-            onClick={confirmOrder} 
-            variant="contained" 
+          <Button
+            onClick={confirmOrder}
+            variant="contained"
             disabled={orderLoading}
+            fullWidth={isMobile}
             startIcon={orderLoading && <CircularProgress size={16} />}
           >
             {orderLoading ? '発注中...' : '発注確定'}
