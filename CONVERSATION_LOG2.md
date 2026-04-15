@@ -503,3 +503,141 @@ const saveUnavailableDates = async (locationId, dates) => {
 **記録作成日**: 2026年4月15日
 **実装者**: Claude Code
 **変更ファイル数**: 11ファイル（新規3・修正8）
+
+---
+
+## 2026年4月15日: コードレビュー全問題対応（Phase 1〜4）
+
+### 概要
+
+`CODE_REVIEW.md` に基づき、CRITICAL・HIGH・MEDIUM・LOW の全24問題を4フェーズに分けて対応しました。すべてのフェーズでビルドが成功し（exit code 0）、新規エラーなし。
+
+---
+
+### Phase 1: CRITICAL 問題（6件）
+
+#### C-1: ハードコードされた管理者メールアドレス削除
+- `src/contexts/AuthContext.js`: `adminEmails` 配列を削除、Custom Claims のみで管理者判定
+- `firestore.rules`: `request.auth.token.email == 'admin@example.com'` を削除
+
+#### C-2: Cloud Function 認証チェック欠落
+- `functions/index.js`: `updateNotificationStatus` に `context.auth` + `context.auth.token.admin` チェックを追加
+
+#### C-3: 初期 status の不一致
+- `src/firebase/services.js`: `status: 'processing'` → `status: 'pending'` に修正（Firestore ルールと整合）
+
+#### C-4: 動的 require() を静的 import に変更
+- `src/components/OrderPage.js`: `auth, db, collection, addDoc, serverTimestamp` を静的インポートに移行
+- `src/components/DefectReportPage.js`: Firebase Auth/Firestore/Storage すべての import を静的化
+
+#### C-5: バリデーション前に Firestore 書き込みが走るバグ
+- `src/components/OrderPage.js`: `isUnavailableDate()` チェックを Firestore `addDoc()` より前に実行するよう順序修正
+
+#### C-6: UTC 日付をローカル時刻で保存するバグ（JST）
+- `src/components/OrderPage.js`: `toISOString()` → `getFullYear/getMonth/getDate` でローカル日付文字列を生成
+
+---
+
+### Phase 2: HIGH 問題（6件）
+
+#### H-1: 複数注文の同時編集で状態が混在
+- `src/components/OrderHistory.js`: 編集状態（`editingItems`, `confirmDialog`, `errorMsg`）を `OrderRow` サブコンポーネントに移動し独立化
+
+#### H-2: weeklyCart が確認ダイアログに表示されない
+- `src/components/OrderPage.js`: 確認ダイアログに週間発注アイテムのサマリーセクションを追加
+
+#### H-3: products ロード中に canEditOrder が誤動作
+- `src/components/OrderHistory.js`: `if (!products || products.length === 0) return false;` ガードを追加
+
+#### H-4: 数量 0 アイテムが残留するバグ
+- `src/components/OrderHistory.js` / `src/components/AdminOrderHistory.js`: `handleQuantityChange` で quantity === 0 になったアイテムを自動削除
+
+#### H-5: defectReports が Firestore から読み込まれない
+- `src/components/DefectReportPage.js`: `loadPastReports()` async 関数を実装、Firebase 利用可能時は Firestore から取得、デモ時は localStorage にフォールバック
+
+#### H-6: AdminOrderHistory の N+1 Firestore リスナー問題
+- `src/hooks/useAllCustomersOrders.js` を新規作成: `where('customerId', 'in', [...])` + 10件チャンク分割で全顧客の注文を一括取得
+- `src/components/AdminOrderHistory.js`: N 個の個別リスナーを廃止し `useAllCustomersOrders` フックに一本化
+
+---
+
+### Phase 3: MEDIUM 問題（6件）
+
+#### M-1: メール HTML エスケープ（XSS対策）
+- `functions/index.js`: `escapeHtml()` 関数を追加、`generateEmailTemplate` 内の全ユーザーデータに適用
+
+#### M-2: バッチ更新の件数・フィールド検証
+- `functions/index.js`: `ALLOWED_FIELDS` ホワイトリスト、`MAX_BATCH_SIZE = 1000`、`filterAllowedFields()` を追加
+
+#### M-3: syncCustomerClaims が既存 admin 権限を上書き
+- `functions/index.js`: `admin: false` → `admin: currentClaims.admin || false` に修正
+
+#### M-4: `prompt()` / `alert()` を MUI Dialog / Snackbar に置き換え
+- `src/components/OrderPage.js`: 数量一括設定を TextField + Dialog で実装、エラーを Snackbar で表示
+- `src/components/OrderHistory.js`, `AdminOrderHistory.js`: `alert()` を `<Snackbar>` に置き換え
+
+#### M-5: ページネーション実装
+- `src/components/OrderHistory.js`: `ORDERS_PER_PAGE = 10`、MUI `<Pagination>` コンポーネントを追加
+
+#### M-6: その他の N+1 最適化
+- H-6 で解消済みのため追加対応なし
+
+---
+
+### Phase 4: LOW 問題（6件）
+
+#### L-1: ステータスヘルパーの重複定義
+- `src/utils/orderHelpers.js` を新規作成: `getStatusColor`, `getStatusText`, `getStatusIcon`, `getOrderDeliveryDate` を集約
+- `src/components/OrderHistory.js`, `AdminOrderHistory.js`: ローカル定義を削除し `orderHelpers` からインポートに切り替え
+
+#### L-2: 成功アラートの自動消去
+- `src/components/OrderPage.js`: `useEffect` + `setTimeout(5000)` で `success` を自動クリア
+
+#### L-3: デバッグ用 console.log の削除
+- `src/components/OrderPage.js`: 2箇所削除
+- `src/contexts/AuthContext.js`: 3箇所削除
+
+#### L-4: アイコンのみボタンのアクセシビリティ
+- `src/App.js`: ナビゲーションバーの全7ボタン（発注・履歴・不良報告・納品先変更・マスタ管理・受注管理・ログアウト）に `aria-label` を追加
+
+#### L-5: LINE通知スタブの整理
+- `functions/index.js`: `sendLineNotification` 内の `console.log('LINE通知実装予定:', salesStaff.lineUserId)` を削除し、`TODO` コメントに置換
+
+#### L-6: 納品先変更ボタンのアイコン修正
+- `src/App.js`: `ArrowBackIcon` → `SwapHorizIcon`（「戻る」ではなく「切替」の意味を正確に表現）
+
+---
+
+### 変更ファイル一覧
+
+**新規作成**:
+- `src/utils/orderHelpers.js`
+- `src/hooks/useAllCustomersOrders.js`（Phase 2 H-6）
+
+**既存ファイルの更新**:
+- `src/contexts/AuthContext.js`
+- `src/components/OrderPage.js`
+- `src/components/OrderHistory.js`
+- `src/components/AdminOrderHistory.js`
+- `src/components/DefectReportPage.js`
+- `src/firebase/services.js`
+- `src/App.js`
+- `functions/index.js`
+- `firestore.rules`
+
+### ビルド結果
+
+```
+exit code 0
+File sizes after gzip:
+  736.21 kB  build/static/js/main.js
+警告: 既存の ESLint 警告のみ（useProducts.js, useOrders.js の未使用変数）
+新規エラー: なし
+```
+
+---
+
+**記録作成日**: 2026年4月15日
+**実装者**: Claude Code (claude-sonnet-4-6)
+**変更ファイル数**: 9ファイル修正・2ファイル新規作成（計11ファイル）
+**対応問題数**: 24件（C×6・H×6・M×6・L×6）すべて完了

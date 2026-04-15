@@ -11,7 +11,7 @@ import {
   Box,
   CircularProgress
 } from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import HistoryIcon from '@mui/icons-material/History';
@@ -169,6 +169,7 @@ const AppContent = () => {
           {/* ── 発注 ── */}
           <Button
             color="inherit"
+            aria-label="発注"
             onClick={() => setCurrentPage('order')}
             sx={{
               mr: { xs: 0.5, sm: 1 },
@@ -184,6 +185,7 @@ const AppContent = () => {
           {/* ── 履歴 ── */}
           <Button
             color="inherit"
+            aria-label="発注履歴"
             onClick={() => setCurrentPage('history')}
             sx={{
               mr: { xs: 0.5, sm: 1 },
@@ -200,6 +202,7 @@ const AppContent = () => {
           {!user.isAdmin && (
             <Button
               color="inherit"
+              aria-label="不良報告"
               onClick={() => setCurrentPage('defect')}
               sx={{
                 mr: { xs: 0.5, sm: 1 },
@@ -217,6 +220,7 @@ const AppContent = () => {
           {!user.isAdmin && deliveryLocations.length > 1 && (
             <Button
               color="inherit"
+              aria-label="納品先変更"
               onClick={handleChangeDeliveryLocation}
               sx={{
                 mr: { xs: 0.5, sm: 1 },
@@ -225,7 +229,7 @@ const AppContent = () => {
                 backgroundColor: 'transparent'
               }}
             >
-              <ArrowBackIcon sx={{ display: { xs: 'block', sm: 'none' } }} />
+              <SwapHorizIcon sx={{ display: { xs: 'block', sm: 'none' } }} />
               <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>納品先変更</Box>
             </Button>
           )}
@@ -235,6 +239,7 @@ const AppContent = () => {
             <>
               <Button
                 color="inherit"
+                aria-label="マスタ管理"
                 onClick={() => setCurrentPage('master')}
                 sx={{
                   mr: { xs: 0.5, sm: 1 },
@@ -248,6 +253,7 @@ const AppContent = () => {
               </Button>
               <Button
                 color="inherit"
+                aria-label="受注管理"
                 onClick={() => setCurrentPage('orders')}
                 sx={{
                   mr: { xs: 0.5, sm: 1 },
@@ -263,6 +269,7 @@ const AppContent = () => {
           )}
           <Button
             color="inherit"
+            aria-label="ログアウト"
             onClick={logout}
             sx={{
               minWidth: { xs: '48px', sm: 'auto' },

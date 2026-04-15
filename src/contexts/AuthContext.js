@@ -33,12 +33,8 @@ export const AuthProvider = ({ children }) => {
           if (firebaseUser) {
             // IDトークンから Custom Claims を取得
             const idTokenResult = await firebaseUser.getIdTokenResult();
-            // 一時的に特定のメールアドレスを管理者として扱う
-            const adminEmails = [
-              'admin@example.com',
-              'sakura@example.com'  // テスト用に追加（実際の運用時は削除）
-            ];
-            const isAdmin = idTokenResult.claims.admin === true || adminEmails.includes(firebaseUser.email);
+            // 管理者判定はCustom Claimsのみで行う（Firebase Admin SDKでsetCustomUserClaims()を使用）
+            const isAdmin = idTokenResult.claims.admin === true;
 
             // Firestoreから顧客情報を取得（emailで検索）
             const customersRef = collection(db, 'customers');
@@ -70,7 +66,6 @@ export const AuthProvider = ({ children }) => {
               if (locationsData.length === 1) {
                 autoSelectedLocationId = locationsData[0].id;
                 autoSelectedLocationName = locationsData[0].name;
-                console.log('🎯 納品先が1件のため自動選択:', autoSelectedLocationName);
               }
 
               setUser({
@@ -121,7 +116,6 @@ export const AuthProvider = ({ children }) => {
       return unsubscribe;
     } else {
       // デモモード - Firebase なし
-      console.log('🔧 デモモード: Firebase認証を使用せずモックデータで動作');
       // デモ用の納品先データ
       setDeliveryLocations([
         {
@@ -192,7 +186,6 @@ export const AuthProvider = ({ children }) => {
             if (demoLocations.length === 1) {
               autoSelectedLocationId = demoLocations[0].id;
               autoSelectedLocationName = demoLocations[0].name;
-              console.log('🎯 デモモード: 納品先が1件のため自動選択:', autoSelectedLocationName);
             }
           }
 

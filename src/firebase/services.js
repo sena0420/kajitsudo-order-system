@@ -105,7 +105,7 @@ export const orderService = {
     try {
       const orderRef = await addDoc(collection(db, 'orders'), {
         ...orderData,
-        status: 'processing',
+        status: 'pending',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });

@@ -65,20 +65,27 @@ async function sendEmailNotification(salesStaff, orderData, orderId) {
 }
 
 // LINE通知送信（実装予定）
+// eslint-disable-next-line no-unused-vars
 async function sendLineNotification(salesStaff, orderData, orderId) {
-  // LINE Bot APIを使用した通知実装予定
-  console.log('LINE通知実装予定:', salesStaff.lineUserId);
+  // TODO: LINE Messaging API を使用した通知実装予定
+}
+
+// M-1: HTML エスケープ（XSS対策）
+function escapeHtml(text) {
+  if (text === null || text === undefined) return '';
+  const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+  return String(text).replace(/[&<>"']/g, m => map[m]);
 }
 
 // メールテンプレート生成
 function generateEmailTemplate(orderData, orderId) {
   const itemsHtml = orderData.items.map(item => `
     <tr>
-      <td style="border: 1px solid #ddd; padding: 8px;">${item.workCode}</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">${item.productName}</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">${item.specification}</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">${item.origin}</td>
-      <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">${item.quantity}</td>
+      <td style="border: 1px solid #ddd; padding: 8px;">${escapeHtml(item.workCode)}</td>
+      <td style="border: 1px solid #ddd; padding: 8px;">${escapeHtml(item.productName)}</td>
+      <td style="border: 1px solid #ddd; padding: 8px;">${escapeHtml(item.specification)}</td>
+      <td style="border: 1px solid #ddd; padding: 8px;">${escapeHtml(item.origin)}</td>
+      <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">${escapeHtml(item.quantity)}</td>
       <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">¥${item.unitPrice.toLocaleString()}</td>
       <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">¥${item.subtotal.toLocaleString()}</td>
     </tr>
@@ -87,13 +94,13 @@ function generateEmailTemplate(orderData, orderId) {
   return `
     <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
       <h2 style="color: #2196f3;">新規発注通知</h2>
-      
+
       <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
         <h3>発注概要</h3>
-        <p><strong>発注ID:</strong> ${orderId}</p>
-        <p><strong>顧客名:</strong> ${orderData.customerName}</p>
-        <p><strong>発注日:</strong> ${orderData.orderDate}</p>
-        <p><strong>希望納期:</strong> ${orderData.deliveryDate}</p>
+        <p><strong>発注ID:</strong> ${escapeHtml(orderId)}</p>
+        <p><strong>顧客名:</strong> ${escapeHtml(orderData.customerName)}</p>
+        <p><strong>発注日:</strong> ${escapeHtml(orderData.orderDate)}</p>
+        <p><strong>希望納期:</strong> ${escapeHtml(orderData.deliveryDate)}</p>
         <p><strong>合計金額:</strong> ¥${orderData.totalAmount.toLocaleString()}</p>
       </div>
 
@@ -135,6 +142,13 @@ function generateEmailTemplate(orderData, orderId) {
 
 // 通知ステータス更新関数
 exports.updateNotificationStatus = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'ログインが必要です');
+  }
+  if (!context.auth.token.admin) {
+    throw new functions.https.HttpsError('permission-denied', '管理者権限が必要です');
+  }
+
   const { notificationId, status } = data;
 
   try {
@@ -154,6 +168,22 @@ exports.updateNotificationStatus = functions.https.onCall(async (data, context) 
   }
 });
 
+// M-2: 許可フィールド定義（ホワイトリスト方式）
+const ALLOWED_FIELDS = {
+  customers: ['customerId', 'name', 'email', 'salesStaffId', 'minDeliveryDays', 'isActive', 'password'],
+  products: ['customerId', 'workCode', 'name', 'specification', 'origin', 'unitPrice', 'minDeliveryDays', 'isActive', 'weeklyStartDay', 'orderCount']
+};
+const MAX_BATCH_SIZE = 1000;
+
+// レコードから許可フィールドのみ抽出
+function filterAllowedFields(dataType, record) {
+  const allowed = ALLOWED_FIELDS[dataType];
+  if (!allowed) return {};
+  return Object.fromEntries(
+    Object.entries(record).filter(([key]) => allowed.includes(key))
+  );
+}
+
 // RPA向け一括データ更新API
 exports.batchUpdateMasterData = functions.https.onCall(async (data, context) => {
   // 管理者権限チェック
@@ -162,6 +192,20 @@ exports.batchUpdateMasterData = functions.https.onCall(async (data, context) => 
   }
 
   const { dataType, records, options } = data;
+
+  // M-2: データタイプ検証
+  if (!ALLOWED_FIELDS[dataType]) {
+    throw new functions.https.HttpsError('invalid-argument', `未対応のデータタイプ: ${dataType}`);
+  }
+
+  // M-2: 件数上限チェック
+  if (!Array.isArray(records) || records.length === 0) {
+    throw new functions.https.HttpsError('invalid-argument', 'レコードが空です');
+  }
+  if (records.length > MAX_BATCH_SIZE) {
+    throw new functions.https.HttpsError('invalid-argument', `一度に処理できるレコードは${MAX_BATCH_SIZE}件までです（指定: ${records.length}件）`);
+  }
+
   const batch = admin.firestore().batch();
   const results = {
     success: 0,
@@ -171,8 +215,9 @@ exports.batchUpdateMasterData = functions.https.onCall(async (data, context) => 
 
   try {
     for (let i = 0; i < records.length; i++) {
-      const record = records[i];
-      
+      // M-2: 許可フィールドのみを取り出す（余分なフィールドを除去）
+      const record = filterAllowedFields(dataType, records[i]);
+
       try {
         if (dataType === 'customers') {
           await processBatchCustomer(batch, record, options);
@@ -185,7 +230,7 @@ exports.batchUpdateMasterData = functions.https.onCall(async (data, context) => 
       } catch (error) {
         results.errors.push({
           row: i + 1,
-          record: record,
+          record: records[i],
           error: error.message
         });
       }
@@ -448,8 +493,10 @@ exports.syncCustomerClaims = functions.https.onCall(async (data, context) => {
 
         if (customerId) {
           // 顧客マスタにメールが存在する場合、customerIdを設定
+          // M-3: 既存の admin 権限を上書きしないよう currentClaims を尊重する
+          const currentClaims = userRecord.customClaims || {};
           await admin.auth().setCustomUserClaims(userRecord.uid, {
-            admin: false,
+            admin: currentClaims.admin || false,
             customerId: customerId
           });
           results.success++;

@@ -557,6 +557,7 @@ Missing or insufficient permissions
 - **2026年4月3日**: マスタ一覧の状態変更機能、受注管理への納品先フィルター追加、**Security Rules本番用更新**（マルチテナント対応、フィールドレベル制御、Custom Claims対応）
 - **2025年10月13日**: 納品先ごとの納品不可日設定機能を実装（管理画面に納品先管理タブ追加、発注画面でのバリデーション強化）
 - **2026年4月15日**: 管理者ログインバグ修正、管理者向け全顧客ビュー実装（AdminOrderPage / AdminOrderHistory）、不良報告機能追加（DefectReportPage・Firebase Storage連携）、レスポンシブデザイン全体見直し（ナビアイコン化・ダイアログフルスクリーン化・テーブルスクロール改善）
+- **2026年4月15日（コードレビュー対応）**: Claude Code によるセキュリティ・品質レビュー（CODE_REVIEW.md）に基づき全24問題を対応。CRITICAL: 管理者メールハードコード削除・Cloud Function 認証追加・status 不一致修正・動的 require() 排除・JST 日付バグ修正。HIGH: サブコンポーネント状態分離・N+1 Firestore リスナー最適化・0数量自動削除など。MEDIUM: XSS 対策・バッチ検証強化・MUI Dialog 化・ページネーション追加。LOW: ヘルパー集約・アクセシビリティ向上・デバッグログ整理・アイコン修正。
 
 ## ライセンス
 

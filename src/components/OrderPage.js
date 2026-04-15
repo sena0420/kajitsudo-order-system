@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Typography,
   Card,
@@ -8,6 +8,7 @@ import {
   Box,
   Chip,
   Alert,
+  Snackbar,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -32,6 +33,8 @@ import { useProducts } from '../hooks/useProducts';
 import { useOrders } from '../hooks/useOrders';
 import { sendOrderNotification, sendUrgentNotification } from '../utils/notifications';
 import { useAuth } from '../contexts/AuthContext';
+import { auth, db } from '../firebase/config';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 const OrderPage = ({ user }) => {
   const theme = useTheme();
@@ -48,8 +51,19 @@ const OrderPage = ({ user }) => {
   const [deliveryDates, setDeliveryDates] = useState({}); // 商品ごとの配送日設定
   const [orderConfirm, setOrderConfirm] = useState(false);
   const [success, setSuccess] = useState('');
+  const [errorMsg, setErrorMsg] = useState(''); // M-4: alert() の代替
+
+  // L-2: 成功メッセージを5秒後に自動消去
+  useEffect(() => {
+    if (!success) return;
+    const timer = setTimeout(() => setSuccess(''), 5000);
+    return () => clearTimeout(timer);
+  }, [success]);
   const [orderLoading, setOrderLoading] = useState(false);
   const [tabValue, setTabValue] = useState(0); // 0: 通常発注, 1: 週間発注
+
+  // M-4: 週間数量一括設定ダイアログ
+  const [qtyDialog, setQtyDialog] = useState({ open: false, mode: 'all', productId: null, weekDays: [], inputValue: '' });
 
   const updateQuantity = (productId, change) => {
     setCart(prev => {
@@ -175,6 +189,26 @@ const OrderPage = ({ user }) => {
     setOrderConfirm(true);
   };
 
+  // M-4: 週間数量一括設定ダイアログの適用
+  const applyQtyDialog = () => {
+    const { mode, productId, weekDays: wd, inputValue } = qtyDialog;
+    const numQty = parseInt(inputValue, 10);
+    if (!inputValue || !/^[0-9]+$/.test(inputValue) || numQty <= 0) return;
+    for (let i = 0; i < 7; i++) {
+      const dayDate = wd[i].date.toISOString().split('T')[0];
+      const dayOfWeek = wd[i].date.getDay();
+      const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+      const product = products.find(p => p.id === productId);
+      if (!product) continue;
+      if (mode === 'all' && isDateValid(dayDate, product.minDeliveryDays)) {
+        updateWeeklyQuantity(productId, i, numQty);
+      } else if (mode === 'weekday' && isWeekday && isDateValid(dayDate, product.minDeliveryDays)) {
+        updateWeeklyQuantity(productId, i, numQty);
+      }
+    }
+    setQtyDialog(prev => ({ ...prev, open: false }));
+  };
+
   const confirmOrder = async () => {
     try {
       setOrderLoading(true);
@@ -206,13 +240,24 @@ const OrderPage = ({ user }) => {
       const weeklyItems = Object.entries(weeklyCart).flatMap(([productId, weeklyQuantities]) => {
         const product = products.find(p => p.id === productId);
         const startDate = getNextWeekStart(product.weeklyStartDay);
-        
+
         return Object.entries(weeklyQuantities)
           .filter(([dayIndex, quantity]) => quantity > 0)
           .map(([dayIndex, quantity]) => {
             const deliveryDate = new Date(startDate);
             deliveryDate.setDate(startDate.getDate() + parseInt(dayIndex));
-            
+
+            // ローカル日付のまま文字列化（UTC変換によるズレを防ぐ）
+            const y = deliveryDate.getFullYear();
+            const m = String(deliveryDate.getMonth() + 1).padStart(2, '0');
+            const d = String(deliveryDate.getDate()).padStart(2, '0');
+            const deliveryDateStr = `${y}-${m}-${d}`;
+
+            // 週間発注の納品不可日バリデーション（C-5: 書き込み前に全バリデーション）
+            if (isUnavailableDate(deliveryDateStr)) {
+              throw new Error(`${product.name}（週間発注）の${y}/${m}/${d}は納品不可日です。別の日付を選択してください。`);
+            }
+
             return {
               productId,
               workCode: product.workCode,
@@ -223,7 +268,7 @@ const OrderPage = ({ user }) => {
               unitPrice: product.unitPrice,
               subtotal: product.unitPrice * quantity,
               orderType: 'weekly',
-              deliveryDate: deliveryDate.toISOString().split('T')[0],
+              deliveryDate: deliveryDateStr,
               dayIndex: parseInt(dayIndex)
             };
           });
@@ -242,7 +287,6 @@ const OrderPage = ({ user }) => {
       }, {});
 
       // Firebaseが利用可能かチェック
-      const { auth } = require('../firebase/config');
       const isFirebaseAvailable = auth !== null;
 
       // 納期ごとに別々の注文を作成
@@ -266,9 +310,6 @@ const OrderPage = ({ user }) => {
 
         if (isFirebaseAvailable) {
           // Firestoreに発注データを保存
-          const { collection, addDoc, serverTimestamp } = require('firebase/firestore');
-          const { db } = require('../firebase/config');
-
           const ordersRef = collection(db, 'orders');
           await addDoc(ordersRef, {
             ...orderData,
@@ -288,9 +329,7 @@ const OrderPage = ({ user }) => {
           // 緊急通知の送信（高額・大量発注）
           const isUrgent = await sendUrgentNotification(orderData);
 
-          if (isUrgent) {
-            console.log('緊急通知も送信されました');
-          }
+          // isUrgent は将来的なログ集計用に保持
         } catch (notificationError) {
           console.error('通知送信エラー:', notificationError);
         }
@@ -309,11 +348,10 @@ const OrderPage = ({ user }) => {
       setDeliveryDates({});
       setOrderConfirm(false);
 
-      console.log('発注確定:', `${orderCount}件の注文を作成しました`);
     } catch (err) {
       console.error('発注エラー:', err);
       setSuccess('');
-      alert('発注に失敗しました。もう一度お試しください。');
+      setErrorMsg('発注に失敗しました。もう一度お試しください。');
     } finally {
       setOrderLoading(false);
     }
@@ -653,42 +691,17 @@ const OrderPage = ({ user }) => {
 
                   {/* 便利機能ボタン */}
                   <Box display="flex" justifyContent="center" gap={1} mt={2}>
-                    <Button 
-                      size="small" 
+                    <Button
+                      size="small"
                       variant="outlined"
-                      onClick={() => {
-                        // 全日同じ数量設定
-                        const qty = prompt('全ての日に設定する数量を入力してください：');
-                        if (qty && /^[0-9]+$/.test(qty)) {
-                          const numQty = parseInt(qty);
-                          for (let i = 0; i < 7; i++) {
-                            const dayDate = weekDays[i].date.toISOString().split('T')[0];
-                            if (isDateValid(dayDate, product.minDeliveryDays)) {
-                              updateWeeklyQuantity(product.id, i, numQty);
-                            }
-                          }
-                        }
-                      }}
+                      onClick={() => setQtyDialog({ open: true, mode: 'all', productId: product.id, weekDays, inputValue: '' })}
                     >
                       全日同じ
                     </Button>
-                    <Button 
-                      size="small" 
+                    <Button
+                      size="small"
                       variant="outlined"
-                      onClick={() => {
-                        // 平日のみ設定（月〜金）
-                        const qty = prompt('平日（月〜金）に設定する数量を入力してください：');
-                        if (qty && /^[0-9]+$/.test(qty)) {
-                          const numQty = parseInt(qty);
-                          for (let i = 0; i < 7; i++) {
-                            const dayOfWeek = weekDays[i].date.getDay();
-                            const dayDate = weekDays[i].date.toISOString().split('T')[0];
-                            if (dayOfWeek >= 1 && dayOfWeek <= 5 && isDateValid(dayDate, product.minDeliveryDays)) { // 月〜金かつ有効な日付
-                              updateWeeklyQuantity(product.id, i, numQty);
-                            }
-                          }
-                        }
-                      }}
+                      onClick={() => setQtyDialog({ open: true, mode: 'weekday', productId: product.id, weekDays, inputValue: '' })}
                     >
                       平日のみ
                     </Button>
@@ -749,17 +762,58 @@ const OrderPage = ({ user }) => {
         <DialogTitle>発注確認</DialogTitle>
         <DialogContent dividers>
           <Typography gutterBottom>以下の内容で発注しますか？</Typography>
-          {Object.entries(cart).map(([productId, quantity]) => {
-            const product = products.find(p => p.id === productId);
-            return (
-              <Box key={productId} py={1} borderBottom={1} borderColor="divider">
-                <Typography variant="body2" fontWeight="bold">{product.name} ({product.specification})</Typography>
-                <Typography variant="body2" color="textSecondary">
-                  {quantity}個 × ¥{product.unitPrice.toLocaleString()} = ¥{(quantity * product.unitPrice).toLocaleString()}
-                </Typography>
-              </Box>
-            );
-          })}
+
+          {/* 通常発注 */}
+          {Object.keys(cart).length > 0 && (
+            <Box mb={1}>
+              <Typography variant="caption" color="textSecondary" fontWeight="bold">
+                通常発注
+              </Typography>
+              {Object.entries(cart).map(([productId, quantity]) => {
+                const product = products.find(p => p.id === productId);
+                return (
+                  <Box key={productId} py={1} borderBottom={1} borderColor="divider">
+                    <Typography variant="body2" fontWeight="bold">{product.name} ({product.specification})</Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      {quantity}個 × ¥{product.unitPrice.toLocaleString()} = ¥{(quantity * product.unitPrice).toLocaleString()}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+
+          {/* H-2: 週次発注を確認ダイアログに表示 */}
+          {Object.keys(weeklyCart).length > 0 && (
+            <Box mb={1}>
+              <Typography variant="caption" color="textSecondary" fontWeight="bold">
+                週間発注
+              </Typography>
+              {Object.entries(weeklyCart).map(([productId, weeklyQuantities]) => {
+                const product = products.find(p => p.id === productId);
+                const startDate = getNextWeekStart(product.weeklyStartDay);
+                const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+                return Object.entries(weeklyQuantities)
+                  .filter(([, qty]) => qty > 0)
+                  .map(([dayIndex, qty]) => {
+                    const d = new Date(startDate);
+                    d.setDate(startDate.getDate() + parseInt(dayIndex));
+                    const label = `${d.getMonth() + 1}/${d.getDate()}(${dayNames[d.getDay()]})`;
+                    return (
+                      <Box key={`${productId}-${dayIndex}`} py={1} borderBottom={1} borderColor="divider">
+                        <Typography variant="body2" fontWeight="bold">
+                          {product.name} ({product.specification}) — {label}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          {qty}個 × ¥{product.unitPrice.toLocaleString()} = ¥{(qty * product.unitPrice).toLocaleString()}
+                        </Typography>
+                      </Box>
+                    );
+                  });
+              })}
+            </Box>
+          )}
+
           <Box pt={2}>
             <Typography variant="h6">
               合計: ¥{getTotalAmount().toLocaleString()}
@@ -786,6 +840,55 @@ const OrderPage = ({ user }) => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* M-4: 週間数量一括設定ダイアログ（prompt() の代替） */}
+      <Dialog
+        open={qtyDialog.open}
+        onClose={() => setQtyDialog(prev => ({ ...prev, open: false }))}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>
+          {qtyDialog.mode === 'all' ? '全日の数量を設定' : '平日（月〜金）の数量を設定'}
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="数量"
+            type="number"
+            inputProps={{ min: 1 }}
+            value={qtyDialog.inputValue}
+            onChange={e => setQtyDialog(prev => ({ ...prev, inputValue: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && applyQtyDialog()}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button onClick={() => setQtyDialog(prev => ({ ...prev, open: false }))} variant="outlined">
+            キャンセル
+          </Button>
+          <Button
+            onClick={applyQtyDialog}
+            variant="contained"
+            disabled={!qtyDialog.inputValue || parseInt(qtyDialog.inputValue, 10) <= 0}
+          >
+            適用
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* M-4: エラー通知（alert() の代替） */}
+      <Snackbar
+        open={!!errorMsg}
+        autoHideDuration={6000}
+        onClose={() => setErrorMsg('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" onClose={() => setErrorMsg('')} sx={{ width: '100%' }}>
+          {errorMsg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

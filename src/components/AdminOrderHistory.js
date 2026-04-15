@@ -15,6 +15,7 @@ import {
   Paper,
   CircularProgress,
   Alert,
+  Snackbar,
   Divider,
   IconButton,
   Button,
@@ -34,46 +35,9 @@ import {
   Add as AddIcon,
   Remove as RemoveIcon
 } from '@mui/icons-material';
-import { useOrders } from '../hooks/useOrders';
 import { useAuth } from '../contexts/AuthContext';
-
-const getStatusColor = (status) => {
-  switch (status) {
-    case 'confirmed': return 'success';
-    case 'change_pending': return 'warning';
-    case 'pending': return 'info';
-    default: return 'default';
-  }
-};
-
-const getStatusText = (status) => {
-  switch (status) {
-    case 'confirmed': return '確認済';
-    case 'change_pending': return '変更処理待ち';
-    case 'pending': return '処理待ち';
-    default: return '不明';
-  }
-};
-
-const getStatusIcon = (status) => {
-  switch (status) {
-    case 'confirmed': return <CheckCircle fontSize="small" />;
-    case 'change_pending': return <EditIcon fontSize="small" />;
-    case 'pending': return <HourglassEmpty fontSize="small" />;
-    default: return null;
-  }
-};
-
-const getOrderDeliveryDate = (order) => {
-  if (order.deliveryDate) return order.deliveryDate;
-  if (order.items && order.items.length > 0) {
-    return order.items.reduce((earliest, item) => {
-      if (!item.deliveryDate) return earliest;
-      return !earliest || item.deliveryDate < earliest ? item.deliveryDate : earliest;
-    }, null) || new Date().toISOString().split('T')[0];
-  }
-  return new Date().toISOString().split('T')[0];
-};
+import useAllCustomersOrders from '../hooks/useAllCustomersOrders';
+import { getStatusColor, getStatusText, getStatusIcon, getOrderDeliveryDate } from '../utils/orderHelpers';
 
 // 1件の発注をアコーディオン表示
 const OrderRow = ({ order, updateOrderItems }) => {
@@ -81,6 +45,7 @@ const OrderRow = ({ order, updateOrderItems }) => {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [editingItems, setEditingItems] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const isEditing = editingItems !== null;
   const displayItems = isEditing ? editingItems : order.items;
@@ -93,6 +58,10 @@ const OrderRow = ({ order, updateOrderItems }) => {
     setEditingItems(prev => {
       const newItems = [...prev];
       const newQuantity = Math.max(0, newItems[index].quantity + delta);
+      // H-4: 数量が 0 になったアイテムは削除
+      if (newQuantity === 0) {
+        return newItems.filter((_, i) => i !== index);
+      }
       newItems[index] = {
         ...newItems[index],
         quantity: newQuantity,
@@ -109,7 +78,7 @@ const OrderRow = ({ order, updateOrderItems }) => {
       setEditingItems(null);
       setConfirmDialog(false);
     } catch {
-      alert('発注内容の更新に失敗しました。');
+      setErrorMsg('発注内容の更新に失敗しました。');
     }
   };
 
@@ -204,7 +173,7 @@ const OrderRow = ({ order, updateOrderItems }) => {
                   <Button variant="outlined" size="small" onClick={() => { setEditingItems(null); setConfirmDialog(false); }}>
                     キャンセル
                   </Button>
-                  <Button variant="contained" size="small" color="primary" onClick={() => setConfirmDialog(true)}>
+                  <Button variant="contained" size="small" color="primary" onClick={() => setConfirmDialog(true)} disabled={editingItems.length === 0}>
                     変更を保存
                   </Button>
                 </>
@@ -231,14 +200,17 @@ const OrderRow = ({ order, updateOrderItems }) => {
           <Button onClick={handleSaveChanges} variant="contained" color="primary" fullWidth={isMobile}>確定</Button>
         </DialogActions>
       </Dialog>
+
+      {/* M-4: エラー通知（alert() の代替） */}
+      <Snackbar open={!!errorMsg} autoHideDuration={6000} onClose={() => setErrorMsg('')} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity="error" onClose={() => setErrorMsg('')} sx={{ width: '100%' }}>{errorMsg}</Alert>
+      </Snackbar>
     </Accordion>
   );
 };
 
-// 顧客ごとの発注履歴セクション
-const CustomerOrderSection = ({ customer }) => {
-  const { orders, loading, error, updateOrderItems } = useOrders(customer.id);
-
+// 顧客ごとの発注履歴セクション（H-6: データは親から渡される）
+const CustomerOrderSection = ({ customer, orders, loading, updateOrderItems }) => {
   const pendingCount = orders.filter(o => o.status === 'pending' || o.status === 'change_pending').length;
 
   return (
@@ -266,8 +238,7 @@ const CustomerOrderSection = ({ customer }) => {
             <Typography variant="body2" color="textSecondary">読み込み中...</Typography>
           </Box>
         )}
-        {error && <Alert severity="error">{error}</Alert>}
-        {!loading && !error && orders.length === 0 && (
+        {!loading && orders.length === 0 && (
           <Typography variant="body2" color="textSecondary" sx={{ py: 1 }}>
             発注履歴がありません
           </Typography>
@@ -280,8 +251,10 @@ const CustomerOrderSection = ({ customer }) => {
   );
 };
 
+// H-6: 全顧客の注文を単一フックで一括取得（N+1リスナーを解消）
 const AdminOrderHistory = () => {
   const { allCustomers } = useAuth();
+  const { ordersByCustomer, loading, error, updateOrderItems } = useAllCustomersOrders(allCustomers);
 
   return (
     <Box>
@@ -290,11 +263,19 @@ const AdminOrderHistory = () => {
       </Typography>
       <Divider sx={{ mb: 3 }} />
 
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
       {allCustomers.length === 0 ? (
         <Typography color="textSecondary" align="center">顧客データがありません</Typography>
       ) : (
         allCustomers.map((customer) => (
-          <CustomerOrderSection key={customer.id} customer={customer} />
+          <CustomerOrderSection
+            key={customer.id}
+            customer={customer}
+            orders={ordersByCustomer[customer.id] || []}
+            loading={loading}
+            updateOrderItems={updateOrderItems}
+          />
         ))
       )}
     </Box>

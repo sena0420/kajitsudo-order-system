@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Typography,
   Box,
@@ -38,6 +38,9 @@ import {
   HourglassEmpty
 } from '@mui/icons-material';
 import { useOrders } from '../hooks/useOrders';
+import { auth, db, storage } from '../firebase/config';
+import { collection, addDoc, getDocs, query, where, orderBy, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 
 // ── ステータス表示ヘルパー ──────────────────────────────────────────
 const REPORT_STATUS = {
@@ -129,9 +132,34 @@ const DefectReportPage = ({ user }) => {
 
   const fileInputRef = useRef(null);
 
-  useEffect(() => {
-    setPastReports(loadReports(user.customerId));
+  // H-5: Firebase が利用可能な場合は Firestore から読み込む
+  const loadPastReports = useCallback(async () => {
+    const isFirebaseAvailable = auth !== null;
+    if (isFirebaseAvailable) {
+      try {
+        const q = query(
+          collection(db, 'defectReports'),
+          where('customerId', '==', user.customerId),
+          orderBy('reportedAt', 'desc')
+        );
+        const snapshot = await getDocs(q);
+        setPastReports(snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          reportedAt: doc.data().reportedAt?.toDate() || new Date()
+        })));
+      } catch (err) {
+        console.error('不良報告の読み込みエラー:', err);
+        setPastReports(loadReports(user.customerId));
+      }
+    } else {
+      setPastReports(loadReports(user.customerId));
+    }
   }, [user.customerId]);
+
+  useEffect(() => {
+    loadPastReports();
+  }, [loadPastReports]);
 
   // ObjectURL を解放
   useEffect(() => {
@@ -192,16 +220,12 @@ const DefectReportPage = ({ user }) => {
     setSubmitError('');
 
     try {
-      const { auth: firebaseAuth } = require('../firebase/config');
-      const isFirebaseAvailable = firebaseAuth !== null;
+      const isFirebaseAvailable = auth !== null;
 
       let imageUrls = [];
 
       if (isFirebaseAvailable && images.length > 0) {
         // Firebase Storage にアップロード
-        const { storage } = require('../firebase/config');
-        const { ref, uploadBytesResumable, getDownloadURL } = require('firebase/storage');
-
         for (let i = 0; i < images.length; i++) {
           const file = images[i];
           const path = `defectReports/${user.customerId}/${Date.now()}_${file.name}`;
@@ -247,13 +271,12 @@ const DefectReportPage = ({ user }) => {
       };
 
       if (isFirebaseAvailable) {
-        // Firestore に保存
-        const { db } = require('../firebase/config');
-        const { collection, addDoc, serverTimestamp } = require('firebase/firestore');
+        // Firestore に保存し、一覧を再取得
         await addDoc(collection(db, 'defectReports'), {
           ...report,
           reportedAt: serverTimestamp()
         });
+        await loadPastReports();
       } else {
         // デモモード: localStorage に保存
         const updated = [report, ...pastReports];
